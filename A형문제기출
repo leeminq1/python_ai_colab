@@ -1,0 +1,187 @@
+%matplotlib inline
+# Ignore the warnings
+import warnings
+# warnings.filterwarnings('always')
+warnings.filterwarnings('ignore')
+
+# System related and data input controls
+import os
+
+# Data manipulation and visualization
+import pandas as pd
+pd.options.display.float_format = '{:,.2f}'.format
+pd.options.display.max_rows = 10
+pd.options.display.max_columns = 20
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Modeling algorithms
+# General
+import statsmodels.api as sm
+from scipy import stats
+
+# Model selection
+from sklearn.model_selection import train_test_split
+
+# Evaluation metrics
+# for regression
+from sklearn.metrics import mean_squared_log_error, mean_squared_error,  r2_score, mean_absolute_error
+# radom forest
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
+from sklearn.metrics import f1_score, confusion_matrix, precision_recall_curve, roc_curve
+from sklearn.linear_model import LogisticRegression
+
+
+
+
+
+//
+# location = 'https://raw.githubusercontent.com/cheonbi/DataScience/master/Data/Bike_Sharing_Demand_Full.csv'
+X_train = './input_train.csv'
+y_train='./output_train.csv'
+
+X_test='./input_test.csv'
+y_test='./output_test.csv'
+
+# header None으로 불러오기
+X_train = pd.read_csv(X_train,header=None)
+y_train = pd.read_csv(y_train,header=None)
+
+X_test = pd.read_csv(X_test,header=None)
+y_test = pd.read_csv(y_test,header=None)
+
+# shape확인
+print("X_train",X_train.shape)
+print("y_train",y_train.shape)
+print("X_test",X_test.shape)
+print("y_test",y_test.shape)
+
+# train data column 이름을 변경
+X_train.columns = ['a', 'b',"c","d","e"]
+X_test.columns = ['a', 'b',"c","d","e"]
+
+
+
+//
+# 결측치 확인
+raw_all.isnull().sum()
+
+
+//
+# from matplotlib import pyplot as plt
+figure, axes = plt.subplots(4, 1, figsize=(80,50))
+X_train.plot(kind='line', figsize=(20,20), linewidth=3, fontsize=20,ax=axes[0]).set_title("X_train")
+y_train.plot(kind='line', figsize=(20,20), linewidth=3, fontsize=20,ax=axes[1]).set_title("y_train")
+
+X_test.plot(kind='line', figsize=(20,20), linewidth=3, fontsize=20,ax=axes[2]).set_title("X_test")
+y_test.plot(kind='line', figsize=(20,20), linewidth=3, fontsize=20,ax=axes[3]).set_title("y_test")
+
+
+//
+# 각 column이 정규분포를 따르는지 확인
+figure, axes = plt.subplots(5, 1, figsize=(50,50))
+sns.distplot(X_train['a'], norm_hist='True', fit=stats.norm,ax=axes[0])
+sns.distplot(X_train['b'], norm_hist='True', fit=stats.norm,ax=axes[1])
+sns.distplot(X_train['c'], norm_hist='True', fit=stats.norm,ax=axes[2])
+sns.distplot(X_train['d'], norm_hist='True', fit=stats.norm,ax=axes[3])
+sns.distplot(X_train['e'], norm_hist='True', fit=stats.norm,ax=axes[4])
+
+
+//
+# 평가지표 출력하는 함수 설정
+def get_clf_eval(y_test, y_pred):
+    confusion = confusion_matrix(y_test, y_pred)
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred)
+    recall = recall_score(y_test, y_pred)
+    F1 = f1_score(y_test, y_pred)
+    AUC = roc_auc_score(y_test, y_pred)
+    
+    print('오차행렬:\n', confusion)
+    print('\n정확도: {:.4f}'.format(accuracy))
+    print('정밀도: {:.4f}'.format(precision))
+    print('재현율: {:.4f}'.format(recall))
+    print('F1: {:.4f}'.format(F1))
+    print('AUC: {:.4f}'.format(AUC))
+    
+//
+# Feautre Engineering 전에 한번 확인
+# random foreset 사용
+
+#기본적인 randomforest모형
+
+clf = RandomForestClassifier(n_estimators=20, max_depth=5,random_state=0)
+clf.fit(X_train,y_train)
+
+predict1 = clf.predict(X_test)
+print("*****F.E 전 " ,accuracy_score(y_test,predict1))
+get_clf_eval(y_test,predict1)
+
+
+//
+# calculate the sample mean and std
+mu = X_train.mean()
+sig = X_train.std()+0.000000001
+
+# normalize (z-score)
+X_train_scaled = (X_train - mu) / sig
+
+
+# train set과 동일한 평균과 표준편차로 test_set도 변경해줘야한다.
+
+X_test_scaled = (X_test - mu) / sig # note! : use the same statistic with the training set!
+
+figure, axes = plt.subplots(5, 1, figsize=(50,50))
+sns.distplot(X_train_scaled_df['a'], norm_hist='True', fit=stats.norm, ax=axes[0])
+sns.distplot(X_train_scaled_df['b'], norm_hist='True', fit=stats.norm, ax=axes[1])
+sns.distplot(X_train_scaled_df['c'], norm_hist='True', fit=stats.norm, ax=axes[2])
+sns.distplot(X_train_scaled_df['d'], norm_hist='True', fit=stats.norm, ax=axes[3])
+sns.distplot(X_train_scaled_df['e'], norm_hist='True', fit=stats.norm, ax=axes[4])
+
+
+
+//
+# Feautre Engineering
+# 정규분포 형태로 변경
+# scaler = StandardScaler()
+
+# X_train_scaled = scaler.fit_transform(X_train)
+# X_test_scaled = scaler.transform(X_test)
+
+# 각 column이 정규분포를 따르는지 확인
+# X_train_scaled_df = pd.DataFrame(X_train_scaled, columns = ['a','b','c','d','e'])
+# figure, axes = plt.subplots(5, 1, figsize=(50,50))
+# sns.distplot(X_train_scaled_df['a'], norm_hist='True', fit=stats.norm, ax=axes[0])
+# sns.distplot(X_train_scaled_df['b'], norm_hist='True', fit=stats.norm, ax=axes[1])
+# sns.distplot(X_train_scaled_df['c'], norm_hist='True', fit=stats.norm, ax=axes[2])
+# sns.distplot(X_train_scaled_df['d'], norm_hist='True', fit=stats.norm, ax=axes[3])
+# sns.distplot(X_train_scaled_df['e'], norm_hist='True', fit=stats.norm, ax=axes[4])
+
+# clf = LogisticRegression()
+clf = RandomForestClassifier(n_estimators=30, max_depth=5,random_state=0)
+clf.fit(X_train_scaled,y_train)
+
+predict_scaled = clf.predict(X_test_scaled)
+print("*****F.E 후 ", accuracy_score(y_test,predict_scaled))
+get_clf_eval(y_test,predict_scaled)
+
+
+
+//
+# 시각화
+ftr_importances_values = clf.feature_importances_
+ftr_importances = pd.Series(ftr_importances_values, index = X_train.columns)
+ftr_top20 = ftr_importances.sort_values(ascending=False)[:20]
+
+plt.figure(figsize=(20,20))
+plt.title('Top 20 Feature Importances')
+
+bar=sns.barplot(x=ftr_top20, y=ftr_top20.index)
+bar.set_xlabel("Impotances", fontsize=20) 
+bar.set_ylabel("Feature", fontsize=20)
+
+plt.show()
