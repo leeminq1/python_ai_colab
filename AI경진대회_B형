@@ -1,0 +1,162 @@
+### MNIST Classifier with CNN 
+from tensorflow import keras
+import numpy as np
+from tensorflow.keras import layers
+
+(x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
+
+
+# data 전처리 수행
+# calculate the sample mean and std
+mu = x_train.mean()
+# 0으로 나누는 것을 방지하기 위해서 매우 작은 값을 더해준다.
+sig = x_train.std()+0.000000001
+
+# normalize (z-score)
+x_train = (x_train - mu) / sig
+# print(x_train[0])
+
+# train set과 동일한 평균과 표준편차로 test_set도 변경해줘야한다.
+
+x_test = (x_test - mu) / sig # note! : use the same statistic with the training set!
+
+
+# Change the shape of data from (W, W) to (W*W, )
+# 여기서는 마지막에 1은 흑백사진이므로 채널을 맞춰주기 위해서 써준다.
+x_train = x_train.reshape((-1, 28,28,1))
+x_test = x_test.reshape((-1, 28,28,1))
+
+
+# convert class vectors to binary class matrices (https://www.educative.io/edpresso/how-to-perform-one-hot-encoding-using-keras)
+# one hot encoding
+y_train = keras.utils.to_categorical(y_train,10)
+y_test = keras.utils.to_categorical(y_test,10)
+
+print(x_train.shape)
+print(y_train.shape)
+print(x_test.shape)
+print(y_test.shape)
+
+
+# sample 확인
+## data sample
+from matplotlib import pyplot as plt
+plt.figure()
+plt.imshow(x_train[1].reshape(28,28),cmap='gray')
+plt.show()
+
+
+
+## 2-layer CNN with MLP
+
+# filter 크기 3*3 * 1 (입력채널 RGB,) * 32(filter갯수) + 32개 (Bias 절편) = 320개  -- input
+# 두번째 3*3 (filter 크기) * 32(입력채널) * 32(FILTER객수) + 32개(FILTER객수 BIASE 절편) =  9248개
+
+
+model = keras.Sequential(
+    [
+      keras.layers.Conv2D(
+        filters=32,
+        kernel_size=(3,3),
+        strides=(1, 1),
+        padding="valid",
+        activation='relu',
+        input_shape=(28,28,1)
+      ),
+      keras.layers.Conv2D(
+        filters=32,
+        kernel_size=(3,3),
+        strides=(1, 1),
+        padding="valid",
+        activation='relu',
+      ),
+     keras.layers.MaxPooling2D(
+       pool_size=(2, 2), strides=None, padding="valid"
+       ),
+     layers.Flatten(),
+     layers.Dense(10,activation='softmax')
+    ],
+    
+)
+
+model.summary()
+
+
+
+
+## Train (https://keras.io/api/models/model_training_apis/)
+batch_size = 64
+epochs = 10
+
+## compile
+model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.001), loss='categorical_crossentropy', metrics=['accuracy']) # keras.losses.MeanSq
+## fit
+hist = model.fit(x=x_train, y=y_train, batch_size=batch_size, epochs=epochs, validation_split=0.1)
+
+
+
+
+# 모델저장
+model.save('AI_MNIST_B_TEST.h5')
+
+
+
+## plot loss and accuracy to check if the model is converged.
+val_accuracy = hist.history['val_accuracy']
+train_accuracy = hist.history['accuracy']
+
+# plot 하여 확인
+from matplotlib import pyplot as plt
+plt.figure()
+plt.plot(np.arange(epochs),val_accuracy,label="val_accuracy")
+plt.plot(np.arange(epochs),train_accuracy,label="train_accuracy")
+plt.legend()
+plt.show()
+
+
+## evaluate on the test set.
+## you should get acc higher than 0.98
+score = model.evaluate(x_test, y_test, verbose=1)
+print(f'Test Loss : {score[0]}')
+print(f'Test Accuracy  : {score[1]}')
+
+
+
+### MNIST Classifier with real hand writing
+import cv2
+# file 읽기
+img_origin=cv2.imread('./b_image.png',cv2.IMREAD_GRAYSCALE)
+plt.imshow(img_origin,cmap = 'gray')
+img_origin.shape
+
+
+
+# 필요한 부분의 이미지 
+img_slice = img_origin[100:270, 20:180]
+
+# 이미지 내의 edge 확인
+edges = cv2.Canny(img_slice,100,200)
+
+plt.subplot(121),plt.imshow(img_slice,cmap = 'gray')
+plt.title('img_slice'), plt.xticks([]), plt.yticks([])
+plt.subplot(122),plt.imshow(edges,cmap = 'gray')
+plt.title('Edge Image'), plt.xticks([]), plt.yticks([])
+
+
+# 이미지 전처리 필요
+img_resized=cv2.resize(255-edges,(28,28))
+img_resized.shape
+plt.imshow(img_resized,cmap = 'gray')
+
+test_num=img_resized.flatten()/255.0
+test_num=test_num.reshape((-1,28,28,1))
+test_num.shape
+
+
+# 이미지 예측
+result=np.argmax(model.predict(test_num), axis=-1)
+print('The answer is',result)
+
+
+
+
