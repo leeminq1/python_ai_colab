@@ -1,0 +1,223 @@
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning) 
+from tensorflow import keras
+import numpy as np
+from tensorflow.keras import layers
+import tensorflow as tf
+import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestClassifier
+from sklearn import metrics
+from sklearn import preprocessing
+from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
+from sklearn.metrics import f1_score, confusion_matrix, precision_recall_curve, roc_curve
+
+(X_train, y_train), (X_test, y_test) = keras.datasets.mnist.load_data()
+
+
+# data 전처리 수행
+# calculate the sample mean and std
+mu = X_train.mean()
+# 0으로 나누는 것을 방지하기 위해서 매우 작은 값을 더해준다.
+sig = X_train.std()+0.000000001
+
+# normalize (z-score)
+X_train = (X_train - mu) / sig
+# print(X_train[0])
+
+# train set과 동일한 평균과 표준편차로 test_set도 변경해줘야한다.
+
+X_test = (X_test - mu) / sig # note! : use the same statistic with the training set!
+
+
+# Change the shape of data from (W, W) to (W*W, )
+# 여기서는 마지막에 1은 흑백사진이므로 채널을 맞춰주기 위해서 써준다.
+X_train = X_train.reshape((-1, 28,28,1))
+X_test = X_test.reshape((-1, 28,28,1))
+
+
+# convert class vectors to binary class matrices (https://www.educative.io/edpresso/how-to-perform-one-hot-encoding-using-keras)
+# one hot encoding
+
+# 여기서는 one-hot-encoding 사용하지 않음
+# y_train = keras.utils.to_categorical(y_train,10)
+# y_test = keras.utils.to_categorical(y_test,10)
+
+print(X_train.shape)
+print(y_train.shape)
+print(X_test.shape)
+print(y_test.shape)
+
+
+
+
+
+/////////////
+
+# model load
+# model = tf.keras.models.load_model('MNIST_B_TEST.h5')
+# model.summary()
+
+## Model (https://keras.io/api/layers/)
+## 2-layer CNN with MLP
+# check the #parameters! (only 10% of MLP)
+# filter의 갯수만큼 output의 갯수가 나옴 , 여기서 filter는 동일 (3,3) 짜리 필터의 갯수를 몇개쓸것인가에 대한것임
+# pooling layer를 쓰는 이유는 demesion reducton과 max값인 것이 예측하는 데 더 많은 정보가 들어있다고 생각함
+
+
+# filter 크기 3*3 * 1 (입력채널 RGB,) * 32(filter갯수) + 32개 (Bias 절편) = 320개  -- input
+# 두번째 3*3 (filter 크기) * 32(입력채널) * 32(FILTER객수) + 32개(FILTER객수 BIASE 절편) =  9248개 
+model = keras.Sequential(
+    [
+      keras.layers.Conv2D(
+        filters=32,
+        kernel_size=(3,3),
+        strides=(1, 1),
+        padding="valid",
+        activation='relu',
+        input_shape=(28,28,1)
+      ),
+      keras.layers.Conv2D(
+        filters=32,
+        kernel_size=(3,3),
+        strides=(1, 1),
+        padding="valid",
+        activation='relu',
+      ),
+     keras.layers.MaxPooling2D(
+       pool_size=(2, 2), strides=None, padding="valid"
+       ),
+     layers.Flatten(),
+    #  hidden layer를 써도 됨
+#      layers.Dense(100,activation='relu'),
+#      layers.Dense(10,activation='softmax')
+    ],
+    
+)
+
+model.summary()
+
+
+
+
+
+
+
+////
+# Layers definitions
+# keras model layer 확인
+from keras import backend as K
+for l in range(len(model.layers)):
+    print(l, model.layers[l])
+
+///
+# Feature extraction layer
+feature_extraion_layer= keras.Model(inputs=model.layers[0].input, outputs=model.layers[3].output, name="feature_extraion_layer")
+feature_extraion_layer.summary()
+
+
+///
+# layer test
+# extracted_features = feature_extraion_layer(X_train[].reshape(-1,28,28))
+# extracted_features.shape     
+
+//
+#Find the Features for n number of train images and we will get n x 4096
+#This means we will get 4096 features for each images.
+i=0
+# features=np.zeros(shape=(X_train.shape[0],4608))
+features_train=np.zeros(shape=(1000,4608))
+features_test=np.zeros(shape=(1000,4608))
+
+for i in range(1000):
+    # train
+    FC_output_train = feature_extraion_layer.predict(X_train[i].reshape(-1,28,28))
+    features_train[i]=FC_output_train
+    # test
+    FC_output_test = feature_extraion_layer.predict(X_test[i].reshape(-1,28,28))
+    features_test[i]=FC_output_test
+    i+=1
+
+print(features_train.shape , features_test.shape)
+
+
+///
+# reshape target
+y_train_feature=y_train[:1000]
+y_test_feature=y_test[:1000]
+
+print(y_train_feature.shape , y_test_feature.shape)
+
+
+///
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning) 
+
+parameters = {"max_depth": [3, None],
+              "n_estimators": [10, 20, 50]}
+rclf = RandomForestClassifier()
+rgclf = GridSearchCV(rclf, param_grid=parameters)
+rgclf.fit(features_train, y_train_feature)
+
+
+///
+# best parameter
+rclf = rgclf.best_estimator_
+rclf.fit(features_train, y_train_feature)
+
+//
+# visualize confusion matrix on heat map
+import pandas as pd
+import seaborn as sn
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix
+
+def print_cmx(y_true, y_pred):
+    labels = sorted(list(set(y_true)))
+    cmx_data = confusion_matrix(y_true, y_pred, labels=labels)
+    
+    df_cmx = pd.DataFrame(cmx_data, index=labels, columns=labels)
+
+    plt.figure(figsize = (10,7))
+    sn.heatmap(df_cmx, annot=True)
+    plt.show()
+    
+    
+///
+# 평가지표 출력하는 함수 설정
+def get_clf_eval(X_test,y_test, y_pred):
+#     confusion = confusion_matrix(y_test, y_pred)
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred,average='micro')
+    recall = recall_score(y_test, y_pred,average='micro')
+    F1 = f1_score(y_test, y_pred,average='micro')
+    
+#     print('오차행렬:\n', confusion)
+    print('\n정확도: {:.4f}'.format(accuracy))
+    print('정밀도: {:.4f}'.format(precision))
+    print('재현율: {:.4f}'.format(recall))
+    print('F1: {:.4f}'.format(F1))
+    
+///
+y_testRF = rclf.predict(features_test)
+
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning) 
+
+print_cmx(y_test_feature, y_testRF)
+print("Accuracy: {0}".format(accuracy_score(y_test_feature, y_testRF)))
+get_clf_eval(features_test,y_test_feature, y_testRF)
+
+
+
+
+
+
+
+    
+    
+    
+
+
