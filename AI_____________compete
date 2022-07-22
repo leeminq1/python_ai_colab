@@ -186,6 +186,161 @@ for i in range(len(X_)):
 print(len(X_sequnce))
 
 
+## X_를 반복해서 변경 --> 현재 X= [   [1구간 (갯수,피처)]  , [2구간 (갯수,피처)] , [3구간 (갯수,피처)]  ]
+## y_는 [정지각1, 정지각2, 정지각3 ...]
+
+X_sequnce=[]
+sequence = 10
+
+for i in range(len(X_)):
+#     배열에 든 하나하나가 전부 dataframe으로 되어 있으므로
+#     한개한개를 빼서 전부 (행 , sequence , feature 수로) 만든다.
+    data = X_[i]
+    X_sequnce_temp = [] 
+#     여기 코드는 일반적으로 sequnce를 통해서 window를 나눌 때의 코드
+#     데이터의 최소 길이를 68로 설정하고 68까지의 데이터만 사용하게 변경
+#     for index in range(len(data) - sequence):
+    for index in range(68 - sequence):
+        X_sequnce_temp.append(np.array(data.iloc[index: index + sequence]))   
+    X_sequnce_temp=np.array(X_sequnce_temp)
+#     X_sequnce_temp = X_sequnce_temp.reshape(X_sequnce_temp.shape[0], sequence, -1)
+    X_sequnce_temp = X_sequnce_temp.reshape(X_sequnce_temp.shape[0], sequence, -1)
+#     최종적으로 X_sequnce 에다가 각각의 데이어를  (행, 피처) --> (행,sequnce, feature수로) 바꾼 것을 넣어준다.
+#     print("변경후 X_sequence : " , X_sequnce_temp.shape)
+    X_sequnce.append(X_sequnce_temp)
+print(len(X_sequnce))
+
+
+
+## 일단 구간 최소길이를 찾고 그 구간으로 자름
+# 최소 구간 68
+temp=[]
+for x in X_sequnce:
+    temp.append(x.shape[0])
+print(min(temp))
+
+
+
+
+
+## numpy 로 4차원 만들기
+arr_4d = np.empty((0, 58,10,16))
+
+for i in range(len(X_sequnce)):
+    
+    item = X_sequnce[i].reshape(1,X_sequnce[i].shape[0],X_sequnce[i].shape[1],X_sequnce[i].shape[2])
+#     print(item.shape)
+    arr_4d = np.append(arr_4d, item, axis=0) 
+print(arr_4d.shape)
+
+
+
+
+from sklearn.model_selection import train_test_split
+
+X_=np.array(arr_4d)
+y_=np.array(y_)
+
+X_train, X_test, y_train, y_test = train_test_split(X_, y_, test_size=0.2, random_state=123,shuffle=False)
+print('X_train:', X_train.shape, 'Y_train:', y_train.shape)
+print('X_test:', X_test.shape, 'Y_test:', y_test.shape)
+
+
+
+
+
+def regression_dilated_cnn(Model_input):
+    x = Conv1D(8, 3, padding='causal')(Model_input)
+    x = BatchNormalization()(x)
+    x = Activation(activation='relu')(x)
+    x = Dropout(0.2)(x)
+
+    x = Conv1D(16, 3, padding='causal', dilation_rate=2)(x)
+    x = BatchNormalization()(x)
+    x = Activation(activation='relu')(x)
+    x = Dropout(0.2)(x)
+
+    x = Conv1D(32, 3, padding='causal', dilation_rate=4)(x)
+    x = BatchNormalization()(x)
+    x = Activation(activation='relu')(x)
+    x = Dropout(0.2)(x)
+
+    x = Conv1D(64, 3, padding='causal', dilation_rate=8)(x)
+    x = BatchNormalization()(x)
+    x = Activation(activation='relu')(x)
+    x = Dropout(0.2)(x)
+
+    x = Conv1D(64, 1)(x)
+    x = Flatten()(x)
+    x = Dense(50)(x)
+    x = BatchNormalization()(x)
+    x = Activation(activation='relu')(x)
+    x = Dropout(0.2)(x)
+
+    x = Dense(1)(x)
+
+    output = Model(Model_input, x, name='regression_dilated_cnn')
+
+    return output
+    
+    
+    
+    
+    
+    
+    
+    
+    
+model_inputs = keras.Input(shape=(X_train.shape[1],X_train.shape[2],X_train.shape[3] ))
+AI_model = regression_dilated_cnn(model_inputs)
+print(AI_model.summary())
+AI_model.compile(loss='mse', optimizer='adam')
+AI_model.fit(X_train, y_train, epochs=200, batch_size=32)  
+
+
+
+
+
+
+
+
+
+
+
+
+# prediction
+Y_train_pred = AI_model.predict(X_train)
+Y_test_pred = AI_model.predict(X_test)
+
+Score_LSTM, Residual_tr, Residual_te,result_df_train, result_df_test = evaluation_trte(pd.DataFrame(y_train), Y_train_pred.flatten(), 
+                                                      pd.DataFrame(y_test), Y_test_pred.flatten(), graph_on=True)
+display(Score_LSTM)
+
+
+
+
+
+
+
+
+
+
+
+
+    
+    
+    
+
+
+
+
+
+
+
+
+
+
+
 
 
 
