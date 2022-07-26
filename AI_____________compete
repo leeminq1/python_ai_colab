@@ -183,6 +183,35 @@ for idx , points in enumerate(zip (index_a, index_b , index_c)):
         plt.axvline(x=df.index[c_point], color='g', linestyle='--', linewidth=1)  
 
 
+################################################################################### 3 차원 데이터로 변경 ###############################
+
+## 기존 X_ , y_ 의 리스트 형태의 데이터를 3차원으로 변경함
+## 배열안에 원소를 꺼내서 (데이터갯수 , 구간길이(min) , 피처갯수)의 형태로 변경함
+
+MIN_len = np.min(arr_origin)
+Max_len = np.max(arr_origin)
+n_feature = 16
+
+X_sequnce = np.empty((0,MIN_len,n_feature))
+
+for i in range(len(X_)):
+    data = X_[i]
+    X_sequnce_temp = [] 
+    start_idx=len(data)-MIN_len  
+    end_idx = len(data)
+#     print(f'총 길이 : {len(data)} , 시작 : {start_idx} , 끝 : {end_idx} , index 갯수 : {end_idx-start_idx}')
+    X_sequnce_temp.append(np.array(data.iloc[start_idx: end_idx]))
+    X_sequnce_temp=np.array(X_sequnce_temp)
+#     최종 배열에 넣는 것은 3차원으로 되어야 함으로 여기서 2차원으로 변경함
+    X_sequnce_temp = X_sequnce_temp.reshape(1,MIN_len, n_feature)
+    X_sequnce = np.append(X_sequnce, X_sequnce_temp, axis=0) 
+print(X_sequnce.shape)
+
+
+
+###################################################### 4차원 데이터로 변경 ######################################
+
+
 
 ## X_를 반복해서 변경 --> 현재 X= [   [1구간 (갯수,피처)]  , [2구간 (갯수,피처)] , [3구간 (갯수,피처)]  ]
 ## y_는 [정지각1, 정지각2, 정지각3 ...]
