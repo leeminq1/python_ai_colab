@@ -67,20 +67,38 @@ print("c지점 갯수 : " , len(index_c))
 #     a_point= points[0]
 #     b_point= points[1]
 #     c_point = points[2]
+# #     print(f'idx : {idx}, a_point : {a_point} , b_point : {b_point} , c_point : {c_point}')
 #     if c_point < b_point:
 #         print(f'idx : {idx}, a_point : {a_point} , b_point : {b_point} , c_point : {c_point}')
 
 ## 위에 for 문으로 눈으로 찾은뒤 2개의 이상치를 제거해야함
 ## for문으로 돌려서 c_point 값이 b_point 보다 커야 되는 데 작은 index 부터 밀려서 나옴
+## 166 번 index
+## x_value Idx / a / b /c : 166 / 2222.52 / 2223.58 / 2223.83
+# idx : 166, a_point : 222252 , b_point : 222358 , c_point : 222383
 # 7293 , 40849 이상치 제거
-remove_set = {7293, 40849}
-index_c = [i for i in index_c if i not in remove_set]
+
+## 정지각 위치 이상한 이상치 삭제
+# index c 이상치 삭제 
+remove_set_c = {7293,222383,40849}
+index_c = [i for i in index_c if i not in remove_set_c]
+
+# index a 이상치 삭제
+remove_set_a = {222252}
+index_a = [i for i in index_a if i not in remove_set_a]
+
+# index a 이상치 삭제
+remove_set_b = {222358}
+index_b = [i for i in index_a if i not in remove_set_b]
+
+
 print(f'이상치 제거 후 c지점 갯수 : {len(index_c)}')
 
 ## 이상치 제거 후 이상없는 지 확인
 print("a지점 갯수 : " , len(index_a))
 print("b지점 갯수 : " , len(index_b))
 print("c지점 갯수 : " , len(index_c))
+
 
 
 
@@ -92,7 +110,6 @@ df
 
 
 
-indexing_window = np.zeros_like(df['eng_rpm'])
 
 ## X , y 값을 순차대로 배열에 넣음
 
@@ -121,9 +138,11 @@ print(f"y data : {len(y_)}")
 
 
 
+### 여기에서는 이상치 구간에 대한 시각화는 안 반영되어있음 그냥 그림만 그리는 것 
+
 ##################### plot 구간 설정  ################
-start_time=20
-end_time = 120
+start_time=2222
+end_time = 2225
 measure_rate= 0.01
 time_to_index = 1/measure_rate
 
@@ -145,22 +164,23 @@ for idx , points in enumerate(zip (index_a, index_b , index_c)):
     c_point = points[2]
     
 #     print(f'index a/b/c : {a_point} / {b_point} / {c_point}')
-#     print(f'x_value a/b/c : {df.index[a_point]} / {df.index[b_point]} / {df.index[c_point]}')
+#     print(f'x_value Idx / a / b /c : {idx} / {df.index[a_point]} / {df.index[b_point]} / {df.index[c_point]}')
     
     ## 모든 구간이 다 작은 경우에만 plot 수행
-    if (df.index[a_point] < end_time) & (df.index[b_point] < end_time) & (df.index[c_point] < end_time):
-        print(f'x_value a/b/c : {df.index[a_point]} / {df.index[b_point]} / {df.index[c_point]}')
+    if (df.index[a_point] < end_time) & (df.index[b_point] < end_time) & (df.index[c_point] < end_time)\
+        &(df.index[a_point] > start_time) & (df.index[b_point] > start_time) & (df.index[c_point] > start_time):
+#         print(f'x_value a/b/c : {df.index[a_point]} / {df.index[b_point]} / {df.index[c_point]}')
     #     a_point 시각화
-        plt.text(df.index[a_point],0, 'A', fontsize=7, color='r')
+        plt.text(df.index[a_point],0, 'A', fontsize=10, color='r')
         plt.axvline(x=df.index[a_point], color='r', linestyle='--', linewidth=1)
 
     #     b_point 시각화
-        plt.text(df.index[b_point],0, 'B', fontsize=7, color='b')
+        plt.text(df.index[b_point],0, 'B', fontsize=10, color='b')
         plt.axvline(x=df.index[b_point], color='b', linestyle='--', linewidth=1)   
 
     #     c_point 시각화
-        plt.text(df.index[c_point], 0, 'C', fontsize=7, color='g')
-        plt.axvline(x=df.index[c_point], color='g', linestyle='--', linewidth=1) 
+        plt.text(df.index[c_point], 0, 'C', fontsize=10, color='g')
+        plt.axvline(x=df.index[c_point], color='g', linestyle='--', linewidth=1)  
 
 
 
