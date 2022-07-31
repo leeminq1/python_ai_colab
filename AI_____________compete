@@ -181,9 +181,47 @@ for idx , points in enumerate(zip (index_a, index_b , index_c)):
     #     c_point 시각화
         plt.text(df.index[c_point], 0, 'C', fontsize=10, color='g')
         plt.axvline(x=df.index[c_point], color='g', linestyle='--', linewidth=1)  
+        
+################################################################################### 3 차원 데이터로 변경 - 최대길이 - 부족한 부분 zero ###############################        
+## 기존 X_ , y_ 의 리스트 형태의 데이터를 3차원으로 변경함
+## 배열안에 원소를 꺼내서 (데이터갯수 , 구간길이(min) , 피처갯수)의 형태로 변경함
+
+MIN_len = np.min(arr_origin)
+Max_len = np.max(arr_origin)
+n_feature = 16
+
+X_sequnce = np.zeros((0,Max_len,n_feature))
+
+for i in range(len(X_)):
+    data = X_[i]
+    
+    X_sequnce_temp = []
+    
+    ## 데이터 최대길이로 불러오기
+    start_idx=0  
+    end_idx = len(data)
+#     print(f'총 길이 : {len(data)} , 시작 : {start_idx} , 끝 : {end_idx} , zero concat 행렬갯수 : {Max_len-end_idx}')
+    data_slice = np.array(data.iloc[start_idx: end_idx])
+    
+    ## 부족한 길이를 0으로 된 행렬생성
+    zero_padding = np.zeros((Max_len-end_idx,n_feature))
+    
+    ## 데이터 합치기
+    data_merge = np.concatenate([data_slice,zero_padding] , axis=0)
+    
+    # 최종 X_sequnce와 합치기 위하여 reshape
+    data_merge = data_merge.reshape(1,Max_len, n_feature )
+    X_sequnce = np.append(X_sequnce, data_merge, axis=0) 
+print(X_sequnce.shape)
+        
+        
+        
+        
+        
+        
 
 
-################################################################################### 3 차원 데이터로 변경 ###############################
+################################################################################### 3 차원 데이터로 변경 - 최소길이 ###############################
 
 ## 기존 X_ , y_ 의 리스트 형태의 데이터를 3차원으로 변경함
 ## 배열안에 원소를 꺼내서 (데이터갯수 , 구간길이(min) , 피처갯수)의 형태로 변경함
