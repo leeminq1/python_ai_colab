@@ -1,3 +1,99 @@
+############################## loss ##############################
+## loss 함수 정의 --> 기존 함수는 [y-y*] 을 정확히 계산못함 118 -> 1 을 118로 계산함
+##   (y* ) 으로 바꾸면 구간의 거리에 따라 error를 결정가능함
+
+## 참고문헌 : https://stats.stackexchange.com/questions/218407/encoding-angle-data-for-neural-network
+## https://discuss.pytorch.org/t/custom-loss-function-for-discontinuous-angle-calculation/58579
+## 분류가 더 나은 판단일수도
+
+
+### 1) 기존 변환은 3, 354 까지로 나타내서 완벽하게 180도를 반영하지 못하게 변환되었음
+### 2) tan 의 범위가 -pi/2 ~ pi/2로 변경해주어야 한다. 
+### --> 기존의 pi/2 영역이 포함되어 불연속 적인 부분에서 발산하는 형태로 학습되어 (-)가 나왔을 수 있음
+
+import math
+
+
+
+# def engine_stop_loss(y_true, y_pred):
+# #     mae
+#     true = y_true * 3 * math.pi/180 - math.pi
+#     pred = y_pred * 3 * math.pi/180 - math.pi
+#     delta_angle = abs(true- pred)
+#     angle_diff = tf.sqrt(2*(1-tf.cos(delta_angle)))
+#     loss = tf.reduce_mean(angle_diff) 
+    
+#     return angle_diff
+
+    
+
+def engine_stop_loss(y_true, y_pred):
+#     rad 변환함. [0, 2*pi]  , y - [1,118] --> deg [3, 354] --> rad [0 , 2*pi] 로 변환됨. 이것을 다시 [-pi , pi] 로 변환해야함.
+
+#    1,118 -> 0,117변환    180 / 117 로 차원을 180로 확장 시킨후 -90도로 ( -90 , 90) 범위로 변경함
+#  tan의 범위는 (-pi/2 , pi/2) 로 -pi, pi로 잡으면 불연속점인 부분이 포함되어있음
+# https://mathbang.net/528?category=432666
+    true = ((y_true - 1) * 180 /117 - 90) * math.pi / 180
+    pred = ((y_pred - 1) * 180 /117 - 90) * math.pi / 180
+  
+    
+#      여기 문제는 1,118 -> 3,354의 경우 실제로는 1차이지만 9차이가 나므로 크게 인식할 수 있음
+#     true = (y_true * 3-90) * math.pi / 180 
+#     pred = (y_pred * 3-90) * math.pi / 180 
+
+    
+    angle_diff = tf.atan2(tf.sin(true-pred), tf.cos(true-pred))
+    loss = tf.reduce_mean(tf.abs(angle_diff))
+    
+    return loss
+
+
+# def mean_squared_error_118(y_true, y_pred):
+#     delta = K.minimum(K.minimum(K.abs(y_pred - y_true),
+#                                   K.abs(y_pred - (118+y_true))),
+#                                   K.abs(y_true - (118+y_pred)))
+#     return K.mean(K.square(delta), axis=-1)
+
+# def rmse_360(y_true, y_pred):
+#       return K.sqrt(mean_squared_error_360(y_true, y_pred))
+
+
+
+
+
+########################### metric #################################
+
+def mean_squared_error_118(y_true, y_pred):
+    loss_arr= np.zeros_like(y_true)
+    loss_1 = abs(y_true.flatten() - y_pred)
+    loss_2 = abs(118 - loss_1)
+    
+    for idx,values in enumerate(zip(loss_1 , loss_2)):
+        a = values[0]
+        b = values[1]
+        min_val = min(a,b)
+        loss_arr[idx]=min_val
+
+    
+    loss_rmse = round(np.sqrt(np.mean(loss_arr**2)),2)
+    loss_mse = round(np.mean(loss_arr**2),2)
+    loss_mae = round(np.mean(abs(loss_arr)),2)
+    loss_mape = round(np.mean((abs(loss_arr) / y_true.flatten() *100)),2)
+
+    return loss_mae , loss_mse , loss_rmse, loss_mape
+
+
+
+
+
+
+
+
+
+
+#################################################
+
+
 ### 구간 추출 메인 
 ## flag 변수 처리
 df.loc[ df['Flag_AtoB'] > 0.9, 'Flag_AtoB'] = 1
