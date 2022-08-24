@@ -1,0 +1,1387 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# # import 함수
+
+# In[1]:
+
+
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+
+# mpl.rc('font',font-family='Malgun Gothic')
+
+# Regression
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
+from sklearn.kernel_ridge import KernelRidge
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.svm import SVR
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor, BaggingRegressor, GradientBoostingRegressor, AdaBoostRegressor
+# from xgboost import XGBRegressor
+# from lightgbm import LGBMRegressor
+
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
+# General(Statistics/Econometrics)
+from sklearn import preprocessing
+import statsmodels.api as sm
+import statsmodels.tsa.api as smt
+import statsmodels.formula.api as smf
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from scipy import stats
+
+from keras.models import Sequential, Model, load_model
+from keras.layers import Input, Dense, Activation, Flatten, Dropout,MaxPooling1D, Conv1D, Conv2D, BatchNormalization,Lambda
+from keras.layers import SimpleRNN, LSTM, GRU, TimeDistributed
+from keras import backend as K
+
+import tensorflow as tf
+import keras
+
+from keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
+
+
+# In[2]:
+
+
+def mean_squared_error_118(y_true, y_pred):
+    loss_arr= np.zeros_like(y_true)
+    loss_1 = abs(y_true.flatten() - y_pred)
+    loss_2 = abs(118 - loss_1)
+    
+    for idx,values in enumerate(zip(loss_1 , loss_2)):
+        a = values[0]
+        b = values[1]
+        min_val = min(a,b)
+        loss_arr[idx]=min_val
+
+    
+    loss_rmse = round(np.sqrt(np.mean(loss_arr**2)),2)
+    loss_mse = round(np.mean(loss_arr**2),2)
+    loss_mae = round(np.mean(abs(loss_arr)),2)
+    loss_mape = round(np.mean((abs(loss_arr) / y_true.flatten() *100)),2)
+
+    return loss_mae , loss_mse , loss_rmse, loss_mape
+    
+    
+def eval_eng_loss (y_train, y_train_pred , y_test , y_test_pred, Regressor=True):
+    MAE_train ,MSE_train, RMSE_train ,MAPE_train  = mean_squared_error_118(y_train.values, y_train_pred)
+
+    Score_train = pd.DataFrame([MAE_train, MSE_train, RMSE_train, MAPE_train], index=['MAE', 'MSE','RMSE','MAPE'], columns=['Score']).T
+#     Residual_train = pd.DataFrame(y_train.values - y_train_pred, index=y_train.index, columns=['Error'])
+    
+    train_graph=pd.concat([y_train, pd.DataFrame(y_train_pred, index=y_train.index, columns=['prediction'])], axis=1).plot(kind='line', figsize=(20,6),
+                                                                                                       xlim=(y_train.index.min(),y_train.index.max()),linewidth=3, fontsize=20)
+    plt.title("Train data set", fontsize=20)
+    plt.xlabel('Time', fontsize=15)
+    plt.ylabel('Target Value', fontsize=15)
+    plt.legend(['Target','Prediction'])
+    
+    
+    MAE_test ,MSE_test, RMSE_test ,MAPE_test  = mean_squared_error_118(y_test.values, y_test_pred)
+    
+    Score_test = pd.DataFrame([MAE_test, MSE_test,RMSE_test, MAPE_test], index=['MAE', 'MSE','RMSE' ,'MAPE'], columns=['Score']).T
+#     Residual_test = pd.DataFrame(y_test.values - y_test_pred, index=y_test.index, columns=['Error'])
+    
+    test_graph=pd.concat([y_test, pd.DataFrame(y_test_pred, index=y_test.index, columns=['prediction'])], axis=1).plot(kind='line', figsize=(20,6),
+                                                                                                       xlim=(y_test.index.min(),y_test.index.max()),linewidth=3, fontsize=20)
+    plt.title("Test data set", fontsize=20)
+    plt.xlabel('Time', fontsize=15)
+    plt.ylabel('Target Value', fontsize=15)
+    plt.legend(['Target','Prediction'])
+    
+    Score_trte = pd.concat([Score_train, Score_test], axis=0)
+    Score_trte.index = ['Train', 'Test']
+
+    if Regressor:
+        display(Score_trte)
+    
+    return train_graph , test_graph   
+
+
+# ## 데이터 불러오기
+
+# In[15]:
+
+
+df=pd.read_csv('../mdf/csv/final/0818_merge_stop_real_final.csv')
+
+# feature 이름변경
+# feature 이름변경
+dict_rename={
+#     캠각
+    'HEV_InCAMadvDeg' : 'eng_camdeg',
+#     흡기온,
+    'HEV_IntakeAirTempVal' : 'eng_intaketemp',
+#     모터 resolver 센서값
+    'CcTsk_ThetaRsv._1_' : 'mot2_rsv'  ,
+#     외기온 센서값
+    'DATC_OutTempSnsrVal' : 'out_temp',
+#     엔진 냉각수온
+    'HEV_EngClntTempVal' : 'eng_tco',
+#     엔진 운전모드
+#     'HEV_EngOpSta' : 'eng_oper',
+#     엔진 rpm
+    'HEV_EngSpdVal' : 'eng_rpm',
+#     엔진 Map 센서 (Manifold air pressure)
+    'Map_p' : 'eng_map' , 
+#     p1 모터 rpm 
+    'MCU_Mg2ActlRotatSpdRpmVal' : 'mot2_rpm',
+#     p1 모터 tq (%)
+    'MCU_Mg2EstTqPcVal' :'mot2_tq',
+#     p1 모터 인버터 온도
+    'MCU_Mg2InvtTempVal': 'mot2_inv_temp',
+#     p1 모터 온도 
+    'MCU_Mg2TempVal' : 'mot2_temp',
+#     엔진 throttle 궤도
+    'Thr_r' : 'eng_tps',
+#     엔진 g 센서 값 종방향
+    'YRS_LongAccelVal' : 'g_value',
+#     엔진 점화각 
+    'HEV_CurSpkTim':'eng_spk',
+#     엔진 연료량
+    'HEV_FuelCnsmptVal':'eng_fuel_consumption',
+#     aps
+    'HEV_AccelPdlVal':"aps",
+#     ptmode,
+    'HCU_PTOpModSta':'pt_mod',
+#     토크 avail
+    'HEV_EngTqAvail':'eng_tq_avail',
+#     엔진 토크
+    'HEV_EngTqVal':'eng_tq_val',
+#     HEV HSG TQ CMD
+    'LHCU_HsgTqCmdPcVal' : 'hsg_tq_cmd',
+#     HEV_CRANK 정지각
+    'HEV_PsnDeg' : 'eng_psn',
+#  Flag처리 A to C 
+    'Flag_AtoC':'Flag_AtoC',
+#  Flag처리 A to B
+    'Flag_AtoB' : 'Flag_AtoB',
+    #     타켓값 , 엔진 정지각 tooth ++
+    'Epm_StopToothNumber_V': 'eng_tooth',
+}
+
+
+# 변수 이름변경
+# df=df_total.copy()
+df=df.rename(columns=dict_rename)
+df['time']=np.arange(0,len(df),1)*0.01
+df=df.drop(columns=['Unnamed: 0'])
+df=df.set_index('time')
+
+# df 에서 사용할 변수 일부만 사용함
+# columns=['mot2_rsv','eng_map','eng_tooth']
+# df=df[columns]
+# df
+
+df
+
+
+# ## 데이터 시각화 이상치 확인용
+
+# In[59]:
+
+
+## 시각화
+#define number of rows and columns for subplots
+mpl.rc('font',size=10)
+
+nrow=10
+ncol=2
+# plot counter
+figure, axes = plt.subplots(nrow, ncol)
+
+# state-machine based interface
+plt.subplots_adjust(wspace=0.1, hspace=0.8)
+
+# plt.tight_layout()
+figure.set_size_inches(60, 40)
+count=0
+for r in range(nrow):
+    for c in range(ncol):
+        if count <20:
+            df.loc[0:len(df),df.columns[count]].plot(kind='line', figsize=(20,20), linewidth=1, fontsize=10 , ax=axes[r,c]).set_title(f"{df.columns[count]}")
+            count+=1
+
+
+# In[9]:
+
+
+# 수치형 데이터의 상관 관계 파악하기
+#heat map 사용을 위해 mask 생성
+df_heatmap=df.drop(columns=['aps','Flag_AtoC','Flag_AtoB','hsg_tq_cmd'])
+corr_mat=round(df_heatmap.corr(),2)
+mask=np.zeros_like(corr_mat)
+# 대각행렬성분을 삭제함
+mask[np.triu_indices_from(mask)]=1
+
+# 빈 heatmap 행 / 열 삭제
+corr_mat=corr_mat.iloc[1:,:-1]
+mask=mask[1:,:-1]
+
+# heatmap 그리기
+figure,ax=plt.subplots()
+figure.set_size_inches(10,10)
+sns.heatmap(
+    corr_mat,
+    # 상관계수 표시
+    annot=True,
+    # 컬러맵
+    cmap='RdBu',
+    mask=mask,
+    linewidths=0.5,
+    # 최대값 대체
+    vmax=1,
+    # 최소값 대체
+    vmin=-1,
+    # 범례크기 줄이기
+    cbar_kws={"shrink" :0.5}
+)
+ax.set(title='Heat Map')
+
+
+# ## 데이터 전처리 
+
+# #### 1) 구간 추출
+
+# In[16]:
+
+
+## flag 변수 처리
+df.loc[ df['Flag_AtoB'] > 0.9, 'Flag_AtoB'] = 1
+df.loc[ df['Flag_AtoB'] <= 0.9, 'Flag_AtoB'] = 0
+
+df.loc[ df['Flag_AtoC'] > 0.9, 'Flag_AtoC'] = 1
+df.loc[ df['Flag_AtoC'] <= 0.9, 'Flag_AtoC'] = 0
+
+## A 구간 선정 - Flag_Ato_B 의 A 지점 Rising edge 생성
+## B 구간 선정 - Flag_Ato_B 의 B 지점 Falling edge 생성
+## C 구간 선정 - Flag_Ato_C 의 C 지점 Falling edge 생성
+
+# flag 변수 생성
+df['a_rising']=0
+df['b_falling']=0
+df['c_falling']=0
+
+# Flag_AtoB의 Rising /Falling edge 사용
+diffs_AB=np.convolve(df['Flag_AtoB'],[1,-1])
+rising_a=diffs_AB > 0.5
+falling_b=diffs_AB < -0.5
+
+######################################## A 지점 ##################################
+df['a_rising']=rising_a[:len(df)]
+df['a_rising']=np.where(
+    df['a_rising'] == True, 1, 0
+)
+index_a=np.where(df['a_rising']==1)
+index_a=index_a[0]
+# print("a지점 갯수 : " , len(index_a))
+
+
+######################################## B 지점 ##################################
+df['b_falling']=falling_b[:len(df)]
+df['b_falling']=np.where(
+    df['b_falling'] == True, 1, 0
+)
+index_b=np.where(df['b_falling']==1)
+index_b=index_b[0]
+# print("b지점 갯수 : " , len(index_b))
+
+
+######################################## C 지점 ##################################
+# Flag_AtoC의 Falling edge 사용
+diffs_AC=np.convolve(df['Flag_AtoC'],[1,-1])
+rising_c=diffs_AC > 0.5
+falling_c=diffs_AC < -0.5
+
+df['c_falling']=falling_c[:len(df)]
+df['c_falling']=np.where(
+    df['c_falling'] == True, 1, 0
+)
+index_c=np.where(df['c_falling']==1)
+index_c=index_c[0]
+# print("c지점 갯수 : " , len(index_c))
+
+
+remove_set_c = {7293,40849,221308,236675,306135,324993,324993,333891,367447, 317642 , 548979 , 1879495 , 2237968}
+index_c = [i for i in index_c if i not in remove_set_c]
+
+# index a 이상치 삭제
+remove_set_a = {221168 , 317534,548848,1879358,2237828  }
+index_a = [i for i in index_a if i not in remove_set_a]
+
+# index b 이상치 삭제
+remove_set_b = {221270 ,317633 ,548954,1879471,2237942   }
+index_b = [i for i in index_b if i not in remove_set_b]
+
+
+
+#### index 1 => 0.01 sec (10ms) , t = 10 ( 0.1 sec) ####
+######################################## B - t 지점 ##################################
+t= 10
+index_b=np.array(index_b)
+index_b_t = index_b - t
+
+######################################## B - 2t 지점 ##################################
+index_b_2t = index_b - 2*t
+
+######################################## B - 3t 지점 ##################################
+index_b_3t = index_b - 3*t
+
+######################################## B - 4t 지점 ##################################
+index_b_4t = index_b - 4*t
+
+######################################## B - 5t 지점 ##################################
+index_b_5t = index_b - 5*t
+
+
+# print(f'이상치 제거 후 c지점 갯수 : {len(index_c)}')
+
+# 이상치 제거 후 이상없는 지 확인
+print("a지점 갯수 : " , len(index_a))
+print("b지점 갯수 : " , len(index_b))
+print("c지점 갯수 : " , len(index_c))
+
+print("-------------------------------")
+print("b_t지점 갯수 : " , len(index_b_t))
+print("b_2t지점 갯수 : " , len(index_b_2t))
+print("b_3t지점 갯수 : " , len(index_b_3t))
+print("b_4t지점 갯수 : " , len(index_b_4t))
+print("b_5t지점 갯수 : " , len(index_b_5t))
+
+
+# In[17]:
+
+
+## 앞에서 생성한 필요없는 columns 삭제
+## a_rising / b_falling / c_falling	
+df = df.drop(columns=['a_rising', 'b_falling', 'c_falling', 'Flag_AtoC' ,'Flag_AtoB','aps','pt_mod','g_value','hsg_tq_cmd'])
+df
+
+
+# ## Scaling
+# # X scaling
+
+# In[23]:
+
+
+## 16개의 변수 
+cols = [
+    'eng_camdeg',
+    'eng_intaketemp',
+    'mot2_rsv',
+    'out_temp',
+    'eng_tco',
+    'eng_rpm',
+    'eng_map',
+    'mot2_rpm',
+    'mot2_tq',
+    'eng_tps',
+#     'g_value',
+    'eng_spk',
+    'eng_fuel_consumption',
+#     'aps',
+#     'pt_mod',
+    'eng_tq_val',
+    'eng_psn',
+    'eng_tooth'
+]
+
+
+df_scaled_featrue_ = df.copy()
+
+df_scaled_featrue_['eng_camdeg'] = (df_scaled_featrue_['eng_camdeg'] - np.min(df_scaled_featrue_['eng_camdeg']) ) / (np.max(df_scaled_featrue_['eng_camdeg']) - np.min(df_scaled_featrue_['eng_camdeg']))
+
+# eng_intaketemp  ( -10 ~ 60)
+df_scaled_featrue_['eng_intaketemp'] = (df_scaled_featrue_['eng_intaketemp'] - (-10)) / ( 60 - (-10))
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_intaketemp']< 0 , 'eng_intaketemp'] = 0
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_intaketemp'] > 1 , 'eng_intaketemp'] = 1
+
+# # mot2_rsv 
+df_scaled_featrue_['mot2_rsv'] = (df_scaled_featrue_['mot2_rsv'] - np.min(df_scaled_featrue_['mot2_rsv']) ) / (np.max(df_scaled_featrue_['mot2_rsv']) - np.min(df_scaled_featrue_['mot2_rsv']))
+df_scaled_featrue_.loc[df_scaled_featrue_['mot2_rsv']< 0 , 'mot2_rsv'] = 0
+df_scaled_featrue_.loc[df_scaled_featrue_['mot2_rsv'] > 1 , 'mot2_rsv'] = 1
+
+# # out_temp (-20 ~ 40)
+df_scaled_featrue_['out_temp'] = (df_scaled_featrue_['out_temp'] - (-20)) / ( 40 - (-20))
+df_scaled_featrue_.loc[df_scaled_featrue_['out_temp']< 0 , 'out_temp'] = 0
+df_scaled_featrue_.loc[df_scaled_featrue_['out_temp'] > 1 , 'out_temp'] = 1
+
+# # eng_tco (-20 ~ 100)
+df_scaled_featrue_['eng_tco'] = (df_scaled_featrue_['eng_tco'] - (-20)) / ( 100 - (-20))
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_tco']< 0 , 'eng_tco'] = 0
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_tco'] > 1 , 'eng_tco'] = 1
+
+# # eng_rpm (0 ~ 2500)
+df_scaled_featrue_['eng_rpm'] = (df_scaled_featrue_['eng_rpm'] - 0 )/ ( 2500 - 0 )
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_rpm'] < 0 , 'eng_rpm'] = 0
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_rpm'] > 1 , 'eng_rpm'] = 1
+
+# # mot2_rpm (0 ~ 2500)
+df_scaled_featrue_['mot2_rpm'] = (df_scaled_featrue_['mot2_rpm'] - 0 )/ ( 2500 - 0 )
+df_scaled_featrue_.loc[df_scaled_featrue_['mot2_rpm'] < 0 , 'mot2_rpm'] = 0
+df_scaled_featrue_.loc[df_scaled_featrue_['mot2_rpm'] > 1 , 'mot2_rpm'] = 1
+
+# # eng_map (200 ~ 1014)
+df_scaled_featrue_['eng_map'] = (df_scaled_featrue_['eng_map'] - 200 )/ ( 1014 - 200 )
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_map'] < 0  , 'eng_map'] = 0
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_map'] > 1 , 'eng_map'] = 1
+
+# # mot2_tq (-30 ~ 30)
+df_scaled_featrue_['mot2_tq'] = (df_scaled_featrue_['mot2_tq'] - (-30) )/ ( 30 - (-30) )
+df_scaled_featrue_.loc[df_scaled_featrue_['mot2_tq'] < 0  , 'mot2_tq'] = 0
+df_scaled_featrue_.loc[df_scaled_featrue_['mot2_tq'] > 1 , 'mot2_tq'] = 1
+
+# # eng_tps (0 ~ 20)
+df_scaled_featrue_['eng_tps'] = (df_scaled_featrue_['eng_tps'] - 0 )/ ( 20 - 0 )
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_tps'] < 0  , 'eng_tps'] = 0
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_tps'] > 1 , 'eng_tps'] = 1
+
+# # eng_spk (-30 ~ 30)
+df_scaled_featrue_['eng_spk'] = (df_scaled_featrue_['eng_spk'] - (-30) )/ ( 30 - (-30) )
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_spk'] < 0  , 'eng_spk'] = 0
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_spk'] > 1 , 'eng_spk'] = 1
+
+# # eng_fuel_consumption (0 ~ 40)
+df_scaled_featrue_['eng_fuel_consumption'] = (df_scaled_featrue_['eng_fuel_consumption'] - 0 )/ ( 40 - 0 )
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_fuel_consumption'] < 0  , 'eng_fuel_consumption'] = 0
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_fuel_consumption'] > 1 , 'eng_fuel_consumption'] = 1
+
+
+# # eng_tq_val (0 ~ 140)
+df_scaled_featrue_['eng_tq_val'] = (df_scaled_featrue_['eng_tq_val'] - 0 )/ ( 140 - 0 )
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_tq_val'] < 0  , 'eng_tq_val'] = 0
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_tq_val'] > 1 , 'eng_tq_val'] = 1
+
+# # eng_psn (1 ~ 720)
+df_scaled_featrue_['eng_psn'] = (df_scaled_featrue_['eng_psn'] - 1 )/ ( 720 - 1 )
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_psn'] < 0  , 'eng_psn'] = 0
+df_scaled_featrue_.loc[df_scaled_featrue_['eng_psn'] > 1 , 'eng_psn'] = 1
+
+
+df_scaled=pd.concat([df_scaled_featrue_[cols], df['eng_tooth']] , axis=1)
+df_scaled.describe(include='all').T
+
+
+# ## 구간 A-B 길이에 따라 변경 X_ 생성 (X_ , X_t , X_3t, X_5t )
+
+# #### 1) X_  , y_ 생성
+
+# In[24]:
+
+
+############################## X_ , y_ ###############################
+
+X_, y_ = [], []
+
+for idx , points in enumerate(zip (index_a, index_b , index_c)):
+    a_point= points[0]
+    b_point= points[1]
+    c_point = points[2]
+
+    x_temp = df_scaled.iloc[a_point:b_point,:-1]
+
+    X_.append(x_temp)
+
+
+    y_temp = df_scaled.iloc[c_point,-1]
+    y_.append(y_temp)
+
+
+
+X_t = []
+
+for idx , points in enumerate(zip (index_a, index_b_t , index_c)):
+    a_point= points[0]
+    b_point= points[1]
+    c_point = points[2]
+    x_temp = df_scaled.iloc[a_point:b_point,:-1]
+    X_t.append(x_temp)
+
+    
+    
+X_3t= []
+
+for idx , points in enumerate(zip (index_a, index_b_3t , index_c)):
+    a_point= points[0]
+    b_point= points[1]
+    c_point = points[2]
+    x_temp = df_scaled.iloc[a_point:b_point,:-1]
+    X_3t.append(x_temp)
+    
+    
+X_5t= []
+
+for idx , points in enumerate(zip (index_a, index_b_5t , index_c)):
+    a_point= points[0]
+    b_point= points[1]
+    c_point = points[2]
+    x_temp = df_scaled.iloc[a_point:b_point,:-1]
+    X_5t.append(x_temp)   
+
+
+
+    
+print("--------------- X -------------")
+print(f"X data : {len(X_)}")
+print(f"X_t data : {len(X_t)}")
+print(f"X_3t data : {len(X_3t)}")
+print(f"X_5t data : {len(X_5t)}")
+
+print("--------------- Y -------------")
+print(f"y data : {len(y_)}")
+
+
+# #### 2) 각 구간 길이 정보 확인
+
+# In[25]:
+
+
+import math
+
+
+# MIN 길이 찾음
+## 일단 구간 최소길이를 찾고 그 구간으로 자름
+# 최소 구간 68
+
+######################## X_ #################################
+temp=[]
+for x in X_:
+    temp.append(x.shape[0])
+# 원래 배열의 크기
+# 위에서 sequnce가 10이므로 원래 배열의 크기를 구하기 위해 10을 더해줌
+arr_origin = np.array(temp)
+
+
+print(f'X_ 최소값 : {math.floor(np.min(arr_origin))}')
+print(f'X_ 최대값 : {math.floor(np.max(arr_origin))}')
+print(f'X_ 평균값 : {math.floor(np.mean(arr_origin))}')
+print("-----------------------------------------------")
+
+######################## X_t #################################
+temp=[]
+for x in X_t:
+    temp.append(x.shape[0])
+# 원래 배열의 크기
+# 위에서 sequnce가 10이므로 원래 배열의 크기를 구하기 위해 10을 더해줌
+arr_origin_t = np.array(temp)
+
+
+print(f'X_t 최소값 : {math.floor(np.min(arr_origin_t))}')
+print(f'X_t 최대값 : {math.floor(np.max(arr_origin_t))}')
+print(f'X_t 평균값 : {math.floor(np.mean(arr_origin_t))}')
+print("-----------------------------------------------")
+
+######################## X_3t #################################
+temp=[]
+for x in X_3t:
+    temp.append(x.shape[0])
+# 원래 배열의 크기
+# 위에서 sequnce가 10이므로 원래 배열의 크기를 구하기 위해 10을 더해줌
+arr_origin_3t = np.array(temp)
+
+
+print(f'X_3t 최소값 : {math.floor(np.min(arr_origin_3t))}')
+print(f'X_3t 최대값 : {math.floor(np.max(arr_origin_3t))}')
+print(f'X_3t 평균값 : {math.floor(np.mean(arr_origin_3t))}')
+print("-----------------------------------------------")
+
+######################## X_5t #################################
+temp=[]
+for x in X_5t:
+    temp.append(x.shape[0])
+# 원래 배열의 크기
+# 위에서 sequnce가 10이므로 원래 배열의 크기를 구하기 위해 10을 더해줌
+arr_origin_5t = np.array(temp)
+
+
+print(f'X_5t 최소값 : {math.floor(np.min(arr_origin_5t))}')
+print(f'X_5t 최대값 : {math.floor(np.max(arr_origin_5t))}')
+print(f'X_5t 평균값 : {math.floor(np.mean(arr_origin_5t))}')
+print("-----------------------------------------------")
+
+
+# ### 3차원으로 (window 통째로 사용함 --> 최소 구간으로 자름
+
+# In[26]:
+
+
+###### 각 길이에 따라 arr_origin ~ arr_origin_5t 변경 #####
+
+
+MIN_len = math.floor(np.min(arr_origin))
+Max_len = math.floor(np.max(arr_origin))
+n_feature = 15
+
+X_sequnce = np.empty((0,MIN_len,n_feature))
+
+
+############################### 각 길이에 따라 X_ ~ X_5t 변경필요 #######################
+
+for i in range(len(X_)):
+    data = X_[i]
+    X_sequnce_temp = [] 
+    start_idx=len(data)-MIN_len  
+    end_idx = len(data)
+#     print(f'총 길이 : {len(data)} , 시작 : {start_idx} , 끝 : {end_idx} , index 갯수 : {end_idx-start_idx}')
+    X_sequnce_temp.append(np.array(data.iloc[start_idx: end_idx]))
+    X_sequnce_temp=np.array(X_sequnce_temp)
+#     최종 배열에 넣는 것은 3차원으로 되어야 함으로 여기서 2차원으로 변경함
+    X_sequnce_temp = X_sequnce_temp.reshape(1,MIN_len, n_feature)
+    X_sequnce = np.append(X_sequnce, X_sequnce_temp, axis=0) 
+print(X_sequnce.shape)
+
+
+# ### 3차원으로 (window 통째로 사용함 --> 최대 구간으로 자름 ( 나머지는 zero padding 값 사용)
+
+# In[9]:
+
+
+# ## 기존 X_ , y_ 의 리스트 형태의 데이터를 3차원으로 변경함
+# ## 배열안에 원소를 꺼내서 (데이터갯수 , 구간길이(min) , 피처갯수)의 형태로 변경함
+
+# MIN_len = math.floor(np.min(arr_origin))
+# Max_len = math.floor(np.max(arr_origin))
+# n_feature = 14
+
+# X_sequnce = np.zeros((0,Max_len,n_feature))
+
+# for i in range(len(X_)):
+#     data = X_[i]
+    
+#     X_sequnce_temp = []
+    
+#     ## 데이터 최대길이로 불러오기
+#     start_idx=0  
+#     end_idx = len(data)
+# #     print(f'총 길이 : {len(data)} , 시작 : {start_idx} , 끝 : {end_idx} , zero concat 행렬갯수 : {Max_len-end_idx}')
+#     data_slice = np.array(data.iloc[start_idx: end_idx])
+    
+#     ## 부족한 길이를 0으로 된 행렬생성
+#     zero_padding = np.zeros((Max_len-end_idx,n_feature))
+    
+#     ## 데이터 합치기 (zero padding + data 순서가 중요할듯)
+#     data_merge = np.concatenate([zero_padding,data_slice] , axis=0)
+    
+#     # 최종 X_sequnce와 합치기 위하여 reshape
+#     data_merge = data_merge.reshape(1,Max_len, n_feature )
+#     X_sequnce = np.append(X_sequnce, data_merge, axis=0) 
+# print(X_sequnce.shape)
+
+
+# # Modeling
+
+# In[40]:
+
+
+X_split=X_[:2500]
+X_split.shape
+
+
+# In[92]:
+
+
+from sklearn.model_selection import train_test_split
+
+
+######################### 구간에 따라서 X_  ~  X_5t 변경 ####################
+
+X_=np.array(X_sequnce)
+y_=np.array(y_)
+
+
+######################### 구간에 따라서 X_  ~  X_5t 변경 ####################
+
+
+X_split=X_[:600]
+y_split=y_[:600]
+
+X_train, X_test, y_train, y_test = train_test_split(X_split, y_split, test_size=0.1, random_state=11,shuffle=False)
+
+## 정지각의 최대값은 118 이므로 값을 고정함
+y_train=y_train.clip(1,118)
+y_test=y_test.clip(1,118)
+
+print('X_train:', X_train.shape, 'Y_train:', y_train.shape)
+print('X_test:', X_test.shape, 'Y_test:', y_test.shape)
+
+
+# ## Parameter
+
+# In[93]:
+
+
+epochs=1000
+batch_size=32
+verbose=1
+
+earlystopping = EarlyStopping(monitor='val_loss',  # 모니터 기준 설정 (val loss) 
+                              patience=20,         # 10회 Epoch동안 개선되지 않는다면 종료
+                              verbose=verbose)
+
+
+# ## Loss func
+
+# In[94]:
+
+
+import math
+
+
+def engine_stop_loss(y_true, y_pred):
+
+    true = ((y_true - 1) * 180 /117 - 90) * math.pi / 180
+    pred = ((y_pred - 1) * 180 /117 - 90) * math.pi / 180
+  
+    angle_diff = tf.atan2(tf.sin(true-pred), tf.cos(true-pred))
+    loss = tf.reduce_mean(tf.abs(angle_diff))
+    
+    return loss
+
+
+# ## 1) CNN 기본모델 (Base 향후 추가)
+
+# ## 2) Wavenet (dilation rate)
+
+# In[95]:
+
+
+## 회귀모델
+
+def regression_dilated_cnn(Model_input):
+    x = Conv1D(8, 3, padding='causal')(Model_input)
+    x = BatchNormalization()(x)
+    x = Activation(activation='relu')(x)
+#     x = Dropout(0.1)(x)
+
+    x = Conv1D(16, 3, padding='causal', dilation_rate=2)(x)
+    x = BatchNormalization()(x)
+    x = Activation(activation='relu')(x)
+#     x = Dropout(0.1)(x)
+
+    x = Conv1D(32, 3, padding='causal', dilation_rate=4)(x)
+    x = BatchNormalization()(x)
+    x = Activation(activation='relu')(x)
+#     x = Dropout(0.1)(x)
+
+    x = Conv1D(64, 3, padding='causal', dilation_rate=8)(x)
+    x = BatchNormalization()(x)
+    x = Activation(activation='relu')(x)
+#     x = Dropout(0.1)(x)
+
+    x = Conv1D(64, 1)(x)
+    x = Flatten()(x)
+    x = Dense(256)(x)
+    x = BatchNormalization()(x)
+    x = Activation(activation='relu')(x)
+#     x = Dropout(0.1)(x)
+    
+    x = Dense(128)(x)
+    x = BatchNormalization()(x)
+    x = Activation(activation='relu')(x)
+#     x = Dropout(0.1)(x)
+    
+    x = Dense(64)(x)
+    x = BatchNormalization()(x)
+    x = Activation(activation='relu')(x)
+#     x = Dropout(0.1)(x)
+
+    x = Dense(1)(x) ## 회귀 
+
+    output = Model(Model_input, x, name='regression_dilated_cnn')
+
+    return output
+
+## 모델 생성
+model_inputs = keras.Input(shape=(X_train.shape[1],X_train.shape[2]))
+AI_model = regression_dilated_cnn(model_inputs)
+
+
+# ## 3) Resnet 18
+
+# In[119]:
+
+
+# from keras.callbacks import EarlyStopping
+# from keras.layers import Dense, Conv2D,MaxPool1D,  MaxPool2D, Flatten, GlobalAveragePooling2D,  BatchNormalization, Layer, Add,GlobalAveragePooling1D
+# from keras.models import Sequential
+# from keras.models import Model
+# import tensorflow as tf
+
+# ## resnet
+# class ResnetBlock(Model):
+#     """
+#     A standard resnet block.
+#     """
+
+#     def __init__(self, channels: int, down_sample=False):
+#         """
+#         channels: same as number of convolution kernels
+#         """
+#         super().__init__()
+
+#         self.__channels = channels
+#         self.__down_sample = down_sample
+#         self.__strides = [2, 1] if down_sample else [1, 1]
+
+#         KERNEL_SIZE = 3
+#         # use He initialization, instead of Xavier (a.k.a 'glorot_uniform' in Keras), as suggested in [2]
+#         INIT_SCHEME = "he_normal"
+
+#         self.conv_1 = Conv1D(self.__channels, strides=self.__strides[0],
+#                              kernel_size=KERNEL_SIZE, padding="same", kernel_initializer=INIT_SCHEME)
+#         self.bn_1 = BatchNormalization()
+#         self.conv_2 = Conv1D(self.__channels, strides=self.__strides[1],
+#                              kernel_size=KERNEL_SIZE, padding="same", kernel_initializer=INIT_SCHEME)
+#         self.bn_2 = BatchNormalization()
+#         self.merge = Add()
+
+#         if self.__down_sample:
+#             # perform down sampling using stride of 2, according to [1].
+#             self.res_conv = Conv1D(
+#                 self.__channels, strides=2, kernel_size=1, kernel_initializer=INIT_SCHEME, padding="same")
+#             self.res_bn = BatchNormalization()
+
+#     def call(self, inputs):
+#         res = inputs
+
+#         x = self.conv_1(inputs)
+#         x = self.bn_1(x)
+#         x = tf.nn.relu(x)
+#         x = self.conv_2(x)
+#         x = self.bn_2(x)
+
+#         if self.__down_sample:
+#             res = self.res_conv(res)
+#             res = self.res_bn(res)
+
+#         # if not perform down sample, then add a shortcut directly
+#         x = self.merge([x, res])
+#         out = tf.nn.relu(x)
+#         return out
+    
+    
+# class ResNet18(Model):
+
+#     def __init__(self, **kwargs):
+#         """
+#             num_classes: number of classes in specific classification task.
+#         """
+#         super().__init__(**kwargs)
+#         self.conv_1 = Conv1D(64, 7, strides=2,
+#                              padding="same", kernel_initializer="he_normal")
+#         self.init_bn = BatchNormalization()
+#         self.pool_2 = MaxPool1D(pool_size=2, strides=2, padding="same")
+#         self.res_1_1 = ResnetBlock(64)
+#         self.res_1_2 = ResnetBlock(64)
+#         self.res_2_1 = ResnetBlock(128, down_sample=True)
+#         self.res_2_2 = ResnetBlock(128)
+#         self.res_3_1 = ResnetBlock(256, down_sample=True)
+#         self.res_3_2 = ResnetBlock(256)
+#         self.res_4_1 = ResnetBlock(512, down_sample=True)
+#         self.res_4_2 = ResnetBlock(512)
+#         self.avg_pool = GlobalAveragePooling1D()
+#         self.flat = Flatten()
+#         self.fc = Dense(1)
+
+#     def call(self, inputs):
+#         out = self.conv_1(inputs)
+#         out = self.init_bn(out)
+#         out = tf.nn.relu(out)
+#         out = self.pool_2(out)
+#         for res_block in [self.res_1_1, self.res_1_2, self.res_2_1, self.res_2_2, self.res_3_1, self.res_3_2, self.res_4_1, self.res_4_2]:
+#             out = res_block(out)
+#         out = self.avg_pool(out)
+#         out = self.flat(out)
+#         out = self.fc(out)
+#         return out   
+    
+
+# ### model 생성
+# AI_model = ResNet18()
+# AI_model.build(input_shape = (X_train.shape[0],X_train.shape[1],X_train.shape[2]))
+
+
+# ## 4) LSTM
+
+# In[13]:
+
+
+# def regression_LSTM(Model_input):
+#     x = LSTM(128 , return_sequences=True )(Model_input)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+
+#     x = LSTM(256 , return_sequences=True)(x)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+
+#     x = LSTM(128 , return_sequences=True)(x)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+
+#     x = LSTM(128, return_sequences=True)(x)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+
+#     x = LSTM(64, return_sequences=True)(x)
+#     x = Flatten()(x)
+#     x = Dense(128)(x)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+    
+#     x = Dense(64)(x)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+    
+#     x = Dense(32)(x)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+
+#     x = Dense(1)(x)
+
+#     output = Model(Model_input, x, name='regression_LSTM')
+
+#     return output
+
+# ## 모델 생성
+# model_inputs = keras.Input(shape=(X_train.shape[1],X_train.shape[2]))
+# AI_model= regression_LSTM(model_inputs)
+
+
+# ## 5) GRU
+
+# In[63]:
+
+
+# def regression_GRU(Model_input):
+#     x = GRU(128 , return_sequences=True )(Model_input)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+
+#     x = GRU(256 , return_sequences=True)(x)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+
+#     x = GRU(128 , return_sequences=True)(x)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+
+#     x = GRU(128, return_sequences=True)(x)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+
+#     x = GRU(64, return_sequences=True)(x)
+#     x = Flatten()(x)
+#     x = Dense(128)(x)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+    
+#     x = Dense(64)(x)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+    
+#     x = Dense(32)(x)
+#     x = BatchNormalization()(x)
+#     x = Activation(activation='relu')(x)
+# #     x = Dropout(0.2)(x)
+
+#     x = Dense(1)(x)
+
+#     output = Model(Model_input, x, name='regression_GRU')
+
+#     return output
+
+# ## 모델 생성
+# model_inputs = keras.Input(shape=(X_train.shape[1],X_train.shape[2]))
+# AI_model= regression_GRU(model_inputs)
+
+
+# ## 학습
+
+# In[96]:
+
+
+print(AI_model.summary())
+AI_model.compile(loss=engine_stop_loss, optimizer=keras.optimizers.Adam(learning_rate=0.001, beta_1=0.9, beta_2=0.999), )
+model_fit=AI_model.fit(X_train, y_train, 
+              batch_size=batch_size, 
+              epochs=epochs,
+              callbacks=[earlystopping],
+              verbose=verbose,
+#               validation_split=0.1
+              validation_data=(X_test, y_test) 
+            )  
+
+
+hist=pd.DataFrame(model_fit.history)
+hist
+
+fig, loss_ax = plt.subplots()
+# acc_ax = loss_ax.twinx()
+
+loss_ax.plot(hist['loss'], 'r', label='train loss')
+loss_ax.plot(hist['val_loss'], 'b', label='val loss')
+loss_ax.set_xlabel('epoch')
+loss_ax.set_ylabel('loss')
+loss_ax.legend(loc='upper left')
+
+# acc_ax.plot(hist.history['acc'], 'b', label='train acc')
+# acc_ax.plot(hist.history['val_acc'], 'g', label='val acc')
+# acc_ax.set_ylabel('accuracy')
+# acc_ax.legend(loc='upper left')
+
+plt.show()
+
+
+# # 평가
+
+# In[97]:
+
+
+# prediction
+Y_train_pred = AI_model.predict(X_train).clip(1,118)
+Y_test_pred = AI_model.predict(X_test).clip(1,118)
+
+train_graph , test_graph = eval_eng_loss(pd.DataFrame(y_train), Y_train_pred.flatten(), 
+                                                      pd.DataFrame(y_test), Y_test_pred.flatten())
+
+
+# ### 시험 데이터 정리
+
+# In[202]:
+
+
+df= pd.DataFrame(
+[
+#     F.E 전
+    ['Before F.E',1.71,'Wavenet'],
+    ['Before F.E',1.67,'Resnet'],
+    ['Before F.E',1.67,'LSTM'],
+    ['Before F.E',1.96,'GRU'],
+    ['Before F.E',16.96,'RL'],
+    ['Before F.E',16.58,'XGB'],
+#     RF
+#     ['b-5t',3.96,'RF'],
+#     ['b-3t',2.61,'RF'],
+#     ['b-t',2.08,'RF'],
+    ['b',1.43,'RL'],
+#     XGB
+#     ['b-5t',4.26,'XGB'],
+#     ['b-3t',2.86,'XGB'],
+#     ['b-t',2.00,'XGB'],
+    ['b',1.27,'XGB'],
+#     CNN-wavenet
+#     ['b-5t',2.32,'Wavenet'],
+#     ['b-3t',1.97,'Wavenet'],
+#     ['b-t',2.25,'Wavenet'],
+    ['b',1.58,'Wavenet'],
+#     ['b_max',1.59,'Wavenet'],
+    
+#     CNN-resnet
+#     ['b-5t',1.92,'Resnet'],
+#     ['b-3t',2.08,'Resnet'],
+#     ['b-t',2.32,'Resnet'],
+    ['b',1.41,'Resnet'],
+#     ['b_max',1.75,'Resnet'],
+    
+ #     LSTM
+    ['b',1.61,'LSTM'],
+#     GRU
+    ['b',2.09,'GRU'],  
+     
+],
+#     index=['base','b-5t','b-3t','b-t','b_min','b_max'],
+    columns=['data_set','loss','model']
+
+)
+
+
+# In[194]:
+
+
+df
+
+
+# In[196]:
+
+
+mpl.rc('font',size=18)
+palette = sns.color_palette("pastel")
+
+fig , ax = plt.subplots()
+# plt.tight_layout()
+# plt.subplots_adjust(wspcae= 0.1 , hspace=0.1)
+fig.set_size_inches(11,8)
+
+sns.barplot(x='loss', y='data_set', data=df , hue='model',ax=ax , palette=palette, )
+ax.set(
+    title='F.E Model Result'
+)
+
+
+# In[226]:
+
+
+mpl.rc('font',size=11)
+palette = sns.color_palette("pastel")
+
+fig , ax = plt.subplots()
+# plt.tight_layout()
+# plt.subplots_adjust(wspcae= 0.1 , hspace=0.1)
+fig.set_size_inches(10,4)
+
+sns.barplot(x='loss', y='data_set', data=df , hue='model',ax=ax , palette=palette)
+ax.set(
+    title='F.E vs None F.E (B_data_set)'
+)
+# plt.legend(bbox_to_anchor=(1, 1), loc='upper left', borderaxespad=0)
+plt.legend(loc='lower right', borderaxespad=0)
+
+
+# In[208]:
+
+
+df= pd.DataFrame(
+[
+#     F.E 전
+    ['N. F.E',1.71,'Wavenet'],
+    ['N. F.E',1.67,'Resnet'],
+    ['N. F.E',2.02,'LSTM'],
+    ['N. F.E',1.96,'GRU'],
+    ['N. F.E',16.96,'RL'],
+    ['N. F.E',16.58,'XGB'],
+#     RF
+#     ['b-5t',3.96,'RF'],
+#     ['b-3t',2.61,'RF'],
+#     ['b-t',2.08,'RF'],
+    ['F.E',1.43,'RL'],
+#     XGB
+#     ['b-5t',4.26,'XGB'],
+#     ['b-3t',2.86,'XGB'],
+#     ['b-t',2.00,'XGB'],
+    ['F.E',1.27,'XGB'],
+#     CNN-wavenet
+#     ['b-5t',2.32,'Wavenet'],
+#     ['b-3t',1.97,'Wavenet'],
+#     ['b-t',2.25,'Wavenet'],
+    ['F.E',1.58,'Wavenet'],
+#     ['b_max',1.59,'Wavenet'],
+    
+#     CNN-resnet
+#     ['b-5t',1.92,'Resnet'],
+#     ['b-3t',2.08,'Resnet'],
+#     ['b-t',2.32,'Resnet'],
+    ['F.E',1.41,'Resnet'],
+#     ['b_max',1.75,'Resnet'],
+    
+ #     LSTM
+    ['F.E',1.61,'LSTM'],
+#     GRU
+    ['F.E',2.09,'GRU'],  
+     
+],
+#     index=['base','b-5t','b-3t','b-t','b_min','b_max'],
+    columns=['data_set','loss','model']
+
+)
+
+
+# In[164]:
+
+
+df= pd.DataFrame(
+[
+#     base
+    ['base',30.50,'base'],
+#     RF
+    
+#     ['b-5t',3.96,'RF'],
+#     ['b-3t',2.61,'RF'],
+#     ['b-t',2.08,'RF'],
+#     ['b',1.43,'RF'],
+#     XGB
+#     ['b-5t',4.26,'XGB'],
+#     ['b-3t',2.86,'XGB'],
+#     ['b-t',2.00,'XGB'],
+    ['b',1.27,'XGB'],
+#     CNN-wavenet
+#     ['b-5t',2.32,'Wavenet'],
+    ['b-3t',1.97,'Wavenet'],
+#     ['b-t',2.25,'Wavenet'],
+#     ['b',1.58,'Wavenet'],
+#     ['b_max',1.59,'Wavenet'],
+    
+#     CNN-resnet
+#     ['b-5t',1.92,'Resnet'],
+#     ['b-3t',2.08,'Resnet'],
+#     ['b-t',2.32,'Resnet'],
+#     ['b',1.41,'Resnet'],
+#     ['b_max',1.75,'Resnet'],
+    
+ #     LSTM
+#     ['b',1.61,'LSTM'],
+# #     GRU
+#     ['b',2.09,'GRU'],  
+     
+],
+#     index=['base','b-5t','b-3t','b-t','b_min','b_max'],
+    columns=['data_set','loss','model']
+
+)
+
+
+# In[206]:
+
+
+mpl.rc('font',size=18)
+palette = sns.color_palette("pastel")
+
+fig , ax = plt.subplots()
+# plt.tight_layout()
+# plt.subplots_adjust(wspcae= 0.1 , hspace=0.1)
+fig.set_size_inches(11,4)
+
+sns.barplot(x='loss', y='data_set', data=df ,ax=ax , palette=palette,ci=None, label=["Base","XGBOOST","CNN"] )
+ax.set(
+#     title='Model Result',
+)
+# plt.legend(labels=["Legend_Day1","Legend_Day2","dfdf"], title = "Title_Legend", 
+#            fontsize = 'small', title_fontsize = "20")
+# plt.legend(labels=("Base","XGBOOST","CNN"), loc = 2, bbox_to_anchor = (1,1))
+
+
+# ## 학습속도 그래프
+
+# In[171]:
+
+
+df= pd.DataFrame([
+    ['CNN',69],
+    ['GRU',132],
+    ['LSTM',160],
+    ['ResNet',187],
+],columns=['Model','Toal time(sec)']
+)
+
+
+# In[172]:
+
+
+df
+
+
+# In[186]:
+
+
+mpl.rc('font',size=13)
+palette = sns.color_palette("pastel")
+fig , ax = plt.subplots()
+# plt.tight_layout()
+# plt.subplots_adjust(wspacpe = 0.1 , hspace = 0.1)
+fig.set_size_inches(7,5)
+
+sns.barplot(y='Model', x='Toal time(sec)' , data=df , ax=ax , palette=palette)
+ax.set(title='Learning Time Total(sec)')
+
+
+# ### Data augmentation
+
+# In[101]:
+
+
+df= pd.DataFrame(
+[
+    ['500',8.14],
+    ['600',3.73],
+    ['700',3.29],
+    ['800',2.40],
+    ['900',2.02],
+    ['1000',2.09],
+    ['1500',1.97],
+    ['2000',1.85],
+    ['2500',1.72]
+],
+#     index=['base','b-5t','b-3t','b-t','b_min','b_max'],
+    columns=['Data_count(EA)','Test_loss']
+
+)
+
+
+# In[105]:
+
+
+mpl.rc('font',size=15)
+fig , ax = plt.subplots()
+fig.set_size_inches(11,5)
+
+sns.pointplot(x='Data_count(EA)',y='Test_loss',data=df , ax=ax)
+ax.set(
+    title = "Data set VS Loss"
+)
+plt.legend(['MAE LOSS'])
+
+
+# In[106]:
+
+
+get_ipython().system('pip install celluloid')
+
+
+# In[141]:
+
+
+df
+
+
+# In[155]:
+
+
+data2[:1]
+
+
+# In[157]:
+
+
+data1 = pd.to_numeric(df['Data_count(EA)'], downcast='float')
+data2 = pd.to_numeric(df['Test_loss'], downcast='float')
+
+
+fig=plt.figure(figsize=(9,6))
+
+def animate(i):
+    print(i)
+    x = np.linspace(0,i,i+1)
+    print(x)
+    y1 = data1[:i+1]
+    y2 = data2[:i+1]
+    
+    plt.cla()
+    plt.plot(x, y1, label='Temp_air', lw=3)
+    plt.plot(x, y2, label='Wind_speed', lw=3)
+    plt.title('ASOS Data', fontweight='bold')
+    plt.ylabel('Value')
+    plt.xlabel('Hour')
+    plt.legend(loc='upper left')
+    plt.tight_layout()
+    
+ani = FuncAnimation(plt.gcf(), animate, frames=200, interval=1)
+ani.save('./animation_multi.gif', fps=20)
+print('GIF_make_finish')
+
