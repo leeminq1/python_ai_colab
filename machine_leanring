@@ -1,0 +1,1421 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# ### import
+
+# In[1]:
+
+
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+
+# Regression
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
+from sklearn.kernel_ridge import KernelRidge
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.svm import SVR
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor, BaggingRegressor, GradientBoostingRegressor, AdaBoostRegressor
+# from xgboost import XGBRegressor
+# from lightgbm import LGBMRegressor
+
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
+# General(Statistics/Econometrics)
+from sklearn import preprocessing
+import statsmodels.api as sm
+import statsmodels.tsa.api as smt
+import statsmodels.formula.api as smf
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from scipy import stats
+
+from keras.models import Sequential, Model, load_model
+from keras.layers import Input, Dense, Activation, Flatten, Dropout,MaxPooling1D, Conv1D, Conv2D, BatchNormalization,Lambda
+from keras.layers import SimpleRNN, LSTM, GRU, TimeDistributed
+from keras import backend as K
+
+import tensorflow as tf
+import keras
+
+from keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
+import xgboost as xgb
+
+
+# In[2]:
+
+
+# 함수정리
+def resumetable(df):
+    print(f'데이터셋 형상 {df.shape}')
+    summary=pd.DataFrame(df.dtypes, columns=['데이터타입'])
+#     reset_index()를 하면 기존에 index 였던 피처 열이 뒤로 가면서 "index" 라는 column 이름이 되고 앞에 새로운 숫자 인덱스가 생김
+    summary=summary.reset_index()
+    summary=summary.rename(columns={'index' : '피처'})
+    summary['결측값 갯수'] = df.isnull().sum().values
+    summary['교윳값 갯수'] = df.nunique().values
+#     loc를 통해서 index 이름으로 가져옴
+    summary['첫번째 값']=df.iloc[0].values
+    summary['두번째 값']=df.iloc[1].values
+    summary['세번째 값']=df.iloc[2].values
+
+    return summary
+
+
+def mean_squared_error_118(y_true, y_pred):
+    loss_arr= np.zeros_like(y_true)
+    loss_1 = abs(y_true.flatten() - y_pred)
+    loss_2 = abs(118 - loss_1)
+    
+    for idx,values in enumerate(zip(loss_1 , loss_2)):
+        a = values[0]
+        b = values[1]
+        min_val = min(a,b)
+        loss_arr[idx]=min_val
+
+    
+    loss_rmse = round(np.sqrt(np.mean(loss_arr**2)),2)
+    loss_mse = round(np.mean(loss_arr**2),2)
+    loss_mae = round(np.mean(abs(loss_arr)),2)
+    loss_mape = round(np.mean((abs(loss_arr) / y_true.flatten() *100)),2)
+
+    return loss_mae , loss_mse , loss_rmse, loss_mape
+    
+    
+def eval_eng_loss (y_train, y_train_pred , y_test , y_test_pred, Regressor=True):
+    MAE_train ,MSE_train, RMSE_train ,MAPE_train  = mean_squared_error_118(y_train.values, y_train_pred)
+
+    Score_train = pd.DataFrame([MAE_train, MSE_train, RMSE_train, MAPE_train], index=['MAE', 'MSE','RMSE','MAPE'], columns=['Score']).T
+#     Residual_train = pd.DataFrame(y_train.values - y_train_pred, index=y_train.index, columns=['Error'])
+    
+    train_graph=pd.concat([y_train, pd.DataFrame(y_train_pred, index=y_train.index, columns=['prediction'])], axis=1).plot(kind='line', figsize=(20,6),
+                                                                                                       xlim=(y_train.index.min(),y_train.index.max()),linewidth=3, fontsize=20)
+    plt.title("Train data set", fontsize=20)
+    plt.xlabel('Time', fontsize=15)
+    plt.ylabel('Target Value', fontsize=15)
+    plt.legend(['Target','Prediction'])
+    
+    
+    MAE_test ,MSE_test, RMSE_test ,MAPE_test  = mean_squared_error_118(y_test.values, y_test_pred)
+    
+    Score_test = pd.DataFrame([MAE_test, MSE_test,RMSE_test, MAPE_test], index=['MAE', 'MSE','RMSE' ,'MAPE'], columns=['Score']).T
+#     Residual_test = pd.DataFrame(y_test.values - y_test_pred, index=y_test.index, columns=['Error'])
+    
+    test_graph=pd.concat([y_test, pd.DataFrame(y_test_pred, index=y_test.index, columns=['prediction'])], axis=1).plot(kind='line', figsize=(20,6),
+                                                                                                       xlim=(y_test.index.min(),y_test.index.max()),linewidth=3, fontsize=20)
+    plt.title("Test data set", fontsize=20)
+    plt.xlabel('Time', fontsize=15)
+    plt.ylabel('Target Value', fontsize=15)
+    plt.legend(['Target','Prediction'])
+    
+    Score_trte = pd.concat([Score_train, Score_test], axis=0)
+    Score_trte.index = ['Train', 'Test']
+
+    if Regressor:
+        display(Score_trte)
+    
+    return train_graph , test_graph
+
+
+def data_set(file_path,dict_rename):
+    df=pd.read_csv(file_path)
+    df=df.rename(columns=dict_rename)
+    df['time']=np.arange(0,len(df),1)*0.01
+    df=df.drop(columns=['Unnamed: 0'])
+    df=df.set_index('time')
+    return df
+    
+    
+def data_preprocessing(df):
+    df.loc[ df['Flag_AtoB'] > 0.9, 'Flag_AtoB'] = 1
+    df.loc[ df['Flag_AtoB'] <= 0.9, 'Flag_AtoB'] = 0
+
+    df.loc[ df['Flag_AtoC'] > 0.9, 'Flag_AtoC'] = 1
+    df.loc[ df['Flag_AtoC'] <= 0.9, 'Flag_AtoC'] = 0
+    
+    # flag 변수 생성
+    df['a_rising']=0
+    df['b_falling']=0
+    df['c_falling']=0
+
+    # Flag_AtoB의 Rising /Falling edge 사용
+    diffs_AB=np.convolve(df['Flag_AtoB'],[1,-1])
+    rising_a=diffs_AB > 0.5
+    falling_b=diffs_AB < -0.5
+
+    ######################################## A 지점 ##################################
+    df['a_rising']=rising_a[:len(df)]
+    df['a_rising']=np.where(
+        df['a_rising'] == True, 1, 0
+    )
+    index_a=np.where(df['a_rising']==1)
+    index_a=index_a[0]
+#     print("a지점 갯수 : " , len(index_a))
+
+
+    ######################################## B 지점 ##################################
+    df['b_falling']=falling_b[:len(df)]
+    df['b_falling']=np.where(
+        df['b_falling'] == True, 1, 0
+    )
+    index_b=np.where(df['b_falling']==1)
+    index_b=index_b[0]
+#     print("b지점 갯수 : " , len(index_b))
+
+    #### index 1 => 0.01 sec (10ms) , t = 10 ( 0.1 sec) ####
+    ######################################## B - t 지점 ##################################
+    t= 10
+    index_b_t = index_b - t
+
+    ######################################## B - 2t 지점 ##################################
+    index_b_2t = index_b - 2*t
+
+    ######################################## B - 3t 지점 ##################################
+    index_b_3t = index_b - 3*t
+
+    ######################################## B - 4t 지점 ##################################
+    index_b_4t = index_b - 4*t
+
+    ######################################## B - 5t 지점 ##################################
+    index_b_5t = index_b - 5*t
+
+
+    ######################################## C 지점 ##################################
+    # Flag_AtoC의 Falling edge 사용
+    diffs_AC=np.convolve(df['Flag_AtoC'],[1,-1])
+    rising_c=diffs_AC > 0.5
+    falling_c=diffs_AC < -0.5
+
+    df['c_falling']=falling_c[:len(df)]
+    df['c_falling']=np.where(
+        df['c_falling'] == True, 1, 0
+    )
+    index_c=np.where(df['c_falling']==1)
+    index_c=index_c[0]
+#     print("c지점 갯수 : " , len(index_c))
+
+
+    remove_set_c = {7293,40849,221308,236675,306135,324993,324993,333891,367447, 317642 , 548979 , 1879495 , 2237968}
+    index_c = [i for i in index_c if i not in remove_set_c]
+
+    # index a 이상치 삭제
+    remove_set_a = {221168 , 317534,548848,1879358,2237828  }
+    index_a = [i for i in index_a if i not in remove_set_a]
+
+    # index b 이상치 삭제
+    remove_set_b = {221270 ,317633 ,548954,1879471,2237942   }
+    index_b = [i for i in index_b if i not in remove_set_b]
+
+
+
+    #### index 1 => 0.01 sec (10ms) , t = 10 ( 0.1 sec) ####
+    ######################################## B - t 지점 ##################################
+    t= 10
+    index_b=np.array(index_b)
+    index_b_t = index_b - t
+
+    ######################################## B - 2t 지점 ##################################
+    index_b_2t = index_b - 2*t
+
+    ######################################## B - 3t 지점 ##################################
+    index_b_3t = index_b - 3*t
+
+    ######################################## B - 4t 지점 ##################################
+    index_b_4t = index_b - 4*t
+
+    ######################################## B - 5t 지점 ##################################
+    index_b_5t = index_b - 5*t
+    
+    
+
+
+#     print(f'이상치 제거 후 c지점 갯수 : {len(index_c)}')
+
+    # 이상치 제거 후 이상없는 지 확인
+    print("a지점 갯수 : " , len(index_a))
+    print("b지점 갯수 : " , len(index_b))
+    print("c지점 갯수 : " , len(index_c))
+    print("-------------------------------")
+    print("b_t지점 갯수 : " , len(index_b_t))
+    print("b_2t지점 갯수 : " , len(index_b_2t))
+    print("b_3t지점 갯수 : " , len(index_b_3t))
+    print("b_4t지점 갯수 : " , len(index_b_4t))
+    print("b_5t지점 갯수 : " , len(index_b_5t))
+
+    df = df.drop(columns=['a_rising', 'b_falling', 'c_falling', 'Flag_AtoC' ,'Flag_AtoB'])
+
+    ## X , y 값을 순차대로 배열에 넣음
+
+    X_, y_  = [], [],
+
+    for idx , points in enumerate(zip (index_a, index_b , index_c)):
+        a_point= points[0]
+        b_point= points[1]
+        c_point = points[2]
+    #     print(f'idx : {idx}, a_point : {a_point} , b_point : {b_point} , c_point : {c_point}')
+
+        ## X 배열에 넣음  -- 독립변수
+        # 맨마지막 피처 전까지 넣음
+        x_temp = df.iloc[a_point:b_point,:]
+    #     x_temp_numpy= x_temp.to_numpy()
+    #     print(x_temp_numpy.shape)
+        X_.append(x_temp)
+
+    #     ## y배열에 넣음
+    #     # 맨마지막 피처만 넣음 , eng_tooth
+        y_temp = df.iloc[c_point]['eng_tooth']
+        y_.append(y_temp)
+
+
+    print(f"X data : {len(X_)}")
+    print(f"y data : {len(y_)}")
+    
+    
+    
+    return X_ , y_ , index_b_t , index_b_2t , index_b_3t , index_b_4t, index_b_5t ,index_a , index_b, index_c
+
+def data_feature_preprocessing(X_):
+    data_sel=None
+    for i in range(len(X_)):
+        
+        ## 각각의 데이터를 처리함
+        ## eng_tq_val
+        eng_tq_val = X_[i].iloc[0]['eng_tq_val']
+        ## eng_map
+        eng_map_a=X_[i].iloc[0]['eng_map']
+        eng_map_b=X_[i].iloc[-1]['eng_map']
+        eng_map_avg=np.mean(X_[i].loc[:,'eng_map'])
+
+        ## eng_tps_grd
+        eng_tps=X_[i].iloc[0]['eng_tps']
+        eng_tps_a=X_[i].iloc[0]['eng_tps']
+        eng_tps_b=X_[i].iloc[-1]['eng_tps']
+        
+        eng_tps_grd = abs(eng_tps_b - eng_tps_a) / len(X_[i])
+        
+        
+        ## eng_fuel_consumption
+        eng_fuel_consumption=X_[i].iloc[0]['eng_fuel_consumption']
+        eng_fuel_consumption_b= X_[i].iloc[-1]['eng_fuel_consumption']
+        
+        eng_fuel_consumption_grd = abs(eng_fuel_consumption_b - eng_fuel_consumption)/ len(X_[i])
+        
+        ## mot tq
+        mot2_tq=np.min(X_[i].loc[:,'mot2_tq'])
+        
+        mot2_tq_a=X_[i].iloc[0]['mot2_tq']
+        mot2_tq_b=X_[i].iloc[-1]['mot2_tq']
+        
+        mot2_tq_grd= abs(mot2_tq_b - mot2_tq_a) / len(X_[i])
+        
+
+        ## eng_rpm gradient
+        eng_rpm_max_idx = np.where(X_[i].loc[:,'eng_rpm']==np.max(X_[i].loc[:,'eng_rpm']))
+        eng_rpm_min_idx = np.where(X_[i].loc[:,'eng_rpm']==np.min(X_[i].loc[:,'eng_rpm']))
+
+        eng_rpm_max = X_[i].iloc[eng_rpm_max_idx[0][0]]['eng_rpm']
+        eng_rpm_min = X_[i].iloc[eng_rpm_min_idx[0][0]]['eng_rpm']
+        eng_rpm_grd = (eng_rpm_max-eng_rpm_min) / (eng_rpm_max_idx[0][0]-eng_rpm_min_idx[0][0])
+    #     print(f"max: {eng_rpm_max} , min : {eng_rpm_min} , delta_idx = {eng_rpm_max_idx[0]-eng_rpm_min_idx[0]}")
+    
+        ## mot_rpm gradient
+        mot_rpm_max_idx = np.where(X_[i].loc[:,'mot2_rpm']==np.max(X_[i].loc[:,'mot2_rpm']))
+        mot_rpm_min_idx = np.where(X_[i].loc[:,'mot2_rpm']==np.min(X_[i].loc[:,'mot2_rpm']))
+
+        mot_rpm_max = X_[i].iloc[eng_rpm_max_idx[0][0]]['mot2_rpm']
+        mot_rpm_min = X_[i].iloc[eng_rpm_min_idx[0][0]]['mot2_rpm']
+        mot_rpm_grd = (mot_rpm_max-mot_rpm_min) / (mot_rpm_max_idx[0][0]-mot_rpm_min_idx[0][0])
+    
+    
+    
+        ## eng_map_gradient gradient
+        eng_map_max_idx = np.where(X_[i].loc[:,'eng_map']==np.max(X_[i].loc[:,'eng_map']))
+        eng_map_min_idx = np.where(X_[i].loc[:,'eng_map']==np.min(X_[i].loc[:,'eng_map']))
+
+        eng_map_max = X_[i].iloc[eng_rpm_max_idx[0][0]]['eng_map']
+        eng_map_min = X_[i].iloc[eng_rpm_min_idx[0][0]]['eng_map']
+        eng_map_grd = (eng_map_max-eng_map_min) / (eng_map_max_idx[0][0]-eng_map_min_idx[0][0])
+        
+        
+        ##mot_rsv a/b
+        mot_rsv_a=X_[i].iloc[0]['mot2_rsv']
+        mot_rsv_b=X_[i].iloc[-1]['mot2_rsv']
+    
+    
+    
+        ##eng_tooth a/b
+        eng_tooth_a=X_[i].iloc[0]['eng_tooth']
+        eng_tooth_b=X_[i].iloc[-1]['eng_tooth']
+        
+        ##eng_tooth frequency
+        tooth_110_idx=np.where(X_[0]['eng_tooth'] > 110 )
+        tooth_10_idx=np.where(X_[0]['eng_tooth'] < 10 )
+        
+        tooth_max_idx = tooth_110_idx[0][-1]
+        tooth_min_idx = tooth_10_idx[0][-1]
+        delta_frequence = abs(tooth_max_idx-tooth_min_idx)
+        
+        
+        ## eng_toot_b_series
+        delay_t = 5
+        eng_tooth_b_t=X_[i].iloc[-delay_t]['eng_tooth']
+        eng_tooth_b_2t=X_[i].iloc[-2*delay_t]['eng_tooth']
+        eng_tooth_b_3t=X_[i].iloc[-3*delay_t]['eng_tooth']
+        eng_tooth_b_4t=X_[i].iloc[-4*delay_t]['eng_tooth']
+        eng_tooth_b_5t=X_[i].iloc[-5*delay_t]['eng_tooth']
+        
+        
+        ## eng_map_gradient gradient
+        g_value_max_idx = np.where(X_[i].loc[:,'g_value']==np.max(X_[i].loc[:,'g_value']))
+        g_value_min_idx = np.where(X_[i].loc[:,'g_value']==np.min(X_[i].loc[:,'g_value']))
+
+        g_value_max = X_[i].iloc[g_value_max_idx[0][0]]['g_value']
+        g_value_min = X_[i].iloc[g_value_min_idx[0][0]]['g_value']
+        g_value_grd = (g_value_max-g_value_min) / (g_value_max_idx[0][0]-g_value_min_idx[0][0])
+        
+        g_value_min = np.min(X_[i].loc[:,'g_value'])
+        g_value_max = np.max(X_[i].loc[:,'g_value'])
+        
+        
+
+        ## data frame을 새로 만듦
+        data_sel_temp = pd.DataFrame({
+            'eng_tq_val':eng_tq_val , 'eng_map_a':eng_map_a , 'eng_tps':eng_tps, 'eng_fuel_consumption':eng_fuel_consumption,
+            'mot2_tq':mot2_tq,'eng_rpm_grd':eng_rpm_grd,
+            'eng_map_b':eng_map_b, 'eng_map_avg':eng_map_avg ,'eng_tooth_a':eng_tooth_a,
+            'eng_tooth_b':eng_tooth_b , 'eng_tooth_b_t' : eng_tooth_b_t,'eng_tooth_b_3t':eng_tooth_b_3t ,
+            'eng_tooth_b_5t':eng_tooth_b_5t ,'eng_tooth_freq':delta_frequence, 'eng_map_grd':eng_map_grd,
+            'eng_tps_grd' : eng_tps_grd , 'eng_fuel_consumption_grd':eng_fuel_consumption_grd , 'mot2_tq_grd':mot2_tq_grd,
+            'mot_rpm_grd':mot_rpm_grd, 'mot_rsv_a':mot_rsv_a , 'mot_rsv_b':mot_rsv_b ,
+            'g_value_min':g_value_min , 'g_value_max':g_value_max
+            
+        },index = [0] )
+        data_sel= pd.concat([data_sel,data_sel_temp],axis=0,ignore_index=True)
+    
+    return data_sel
+
+
+# In[9]:
+
+
+pd.DataFrame(X_[0].iloc[-1]).T
+
+
+# In[42]:
+
+
+def data_non_feature_preprocessing(X_):
+    new_df=None
+    for i in range(len(X_)):
+        df___=X_[i]
+        # 구간 평균
+#         df___mean = pd.DataFrame(X_[i].mean()).T
+        # A구간
+#         df___mean=pd.DataFrame(X_[i].iloc[0]).T
+        # MAX
+#         df___mean=pd.DataFrame(X_[i].max()).T
+        # MIN
+        df___mean=pd.DataFrame(X_[i].min()).T
+        
+        
+        new_df=pd.concat([new_df,df___mean] , axis=0 , ignore_index=True)
+
+    return new_df
+
+
+# ### Data
+
+# In[31]:
+
+
+file_path  = '../mdf/csv/final/0818_merge_stop_real_final.csv'
+
+dict_rename={
+#     캠각
+    'HEV_InCAMadvDeg' : 'eng_camdeg',
+#     흡기온,
+    'HEV_IntakeAirTempVal' : 'eng_intaketemp',
+#     모터 resolver 센서값
+    'CcTsk_ThetaRsv._1_' : 'mot2_rsv'  ,
+#     외기온 센서값
+    'DATC_OutTempSnsrVal' : 'out_temp',
+#     엔진 냉각수온
+    'HEV_EngClntTempVal' : 'eng_tco',
+#     엔진 운전모드
+#     'HEV_EngOpSta' : 'eng_oper',
+#     엔진 rpm
+    'HEV_EngSpdVal' : 'eng_rpm',
+#     엔진 Map 센서 (Manifold air pressure)
+    'Map_p' : 'eng_map' , 
+#     p1 모터 rpm 
+    'MCU_Mg2ActlRotatSpdRpmVal' : 'mot2_rpm',
+#     p1 모터 tq (%)
+    'MCU_Mg2EstTqPcVal' :'mot2_tq',
+#     p1 모터 인버터 온도
+#     'MCU_Mg2InvtTempVal': 'mot2_inv_temp',
+#     p1 모터 온도 
+#     'MCU_Mg2TempVal' : 'mot2_temp',
+#     엔진 throttle 궤도
+    'Thr_r' : 'eng_tps',
+#     엔진 g 센서 값 종방향
+    'YRS_LongAccelVal' : 'g_value',
+#     엔진 점화각 
+    'HEV_CurSpkTim':'eng_spk',
+#     엔진 연료량
+    'HEV_FuelCnsmptVal':'eng_fuel_consumption',
+#     aps
+    'HEV_AccelPdlVal':"aps",
+#     ptmode,
+    'HCU_PTOpModSta':'pt_mod',
+#     토크 avail
+    'HEV_EngTqAvail':'eng_tq_avail',
+#     엔진 토크
+    'HEV_EngTqVal':'eng_tq_val',
+#     HEV HSG TQ CMD
+    'LHCU_HsgTqCmdPcVal' : 'hsg_tq_cmd',
+#     HEV_CRANK 정지각
+    'HEV_PsnDeg' : 'eng_psn',
+#  Flag처리 A to C 
+    'Flag_AtoC':'Flag_AtoC',
+#  Flag처리 A to B
+    'Flag_AtoB' : 'Flag_AtoB',
+    #     타켓값 , 엔진 정지각 tooth ++
+    'Epm_StopToothNumber_V': 'eng_tooth',
+}
+
+# data 가져오기
+df=data_set(file_path,dict_rename)
+
+# data a/b/c 구간분리
+X_ , y_, index_b_t , index_b_2t , index_b_3t , index_b_4t, index_b_5t,index_a , index_b, index_c = data_preprocessing(df)
+
+
+# # F . E 전 데이터
+
+# In[5]:
+
+
+# ### 그냥 일렬로 세울 때
+
+# X_all=None
+# for i in range(len(X_)):
+#     df_temp = X_[i]
+#     X_all = pd.concat([X_all,df_temp], axis=0)
+# print(X_all.shape)
+
+
+# ## feature 변수 정리
+# 
+
+# In[43]:
+
+
+# scaling
+
+# cols = [
+# #     'eng_camdeg',
+# #     'eng_intaketemp',
+# #     'mot2_rsv',
+# #     'out_temp',
+# #     'eng_tco',
+# #     'eng_rpm',
+#     'eng_map_a',
+# #     'mot2_rpm',
+    
+#     'mot2_tq',
+# #     'eng_tps',
+    
+# #     'g_value',
+# #     'eng_spk',
+# #     'eng_fuel_consumption',
+# #     'aps',
+# #     'pt_mod',
+#     'eng_tq_val',
+#     'eng_rpm_grd',
+#     'eng_map_b',
+#     'eng_map_avg'
+# ]
+
+# data_sel=data_feature_preprocessing(X_)
+dat_sel_no_fe=data_non_feature_preprocessing(X_)
+
+# # eng_map (200 ~ 1014)
+# data_sel['eng_map_a'] = (data_sel['eng_map_a'] - 200 )/ ( 1014 - 200 )
+# data_sel.loc[data_sel['eng_map_a'] < 0  , 'eng_map_a'] = 0
+# data_sel.loc[data_sel['eng_map_a'] > 1 , 'eng_map_a'] = 1
+
+# data_sel['eng_map_b'] = (data_sel['eng_map_b'] - 200 )/ ( 1014 - 200 )
+# data_sel.loc[data_sel['eng_map_b'] < 0  , 'eng_map_b'] = 0
+# data_sel.loc[data_sel['eng_map_b'] > 1 , 'eng_map_b'] = 1
+
+# data_sel['eng_map_avg'] = (data_sel['eng_map_avg'] - 200 )/ ( 1014 - 200 )
+# data_sel.loc[data_sel['eng_map_avg'] < 0  , 'eng_map_avg'] = 0
+# data_sel.loc[data_sel['eng_map_avg'] > 1 , 'eng_map_avg'] = 1
+
+# # # mot2_tq (-30 ~ 30)
+# data_sel['mot2_tq'] = (data_sel['mot2_tq'] - (-30) )/ ( 30 - (-30) )
+# data_sel.loc[data_sel['mot2_tq'] < 0  , 'mot2_tq'] = 0
+# data_sel.loc[data_sel['mot2_tq'] > 1 , 'mot2_tq'] = 1
+
+# # # eng_tq_val (0 ~ 140)
+# data_sel['eng_tq_val'] = (data_sel['eng_tq_val'] - 0 )/ ( 140 - 0 )
+# data_sel.loc[data_sel['eng_tq_val'] < 0  , 'eng_tq_val'] = 0
+# data_sel.loc[data_sel['eng_tq_val'] > 1 , 'eng_tq_val'] = 1
+
+# # # eng_tq_val (-16 ~ -10)
+# data_sel['eng_rpm_grd'] = (data_sel['eng_rpm_grd'] - (-16) )/ ( -10 - (-16) )
+# data_sel.loc[data_sel['eng_rpm_grd'] < 0  , 'eng_rpm_grd'] = 0
+# data_sel.loc[data_sel['eng_rpm_grd'] > 1 , 'eng_rpm_grd'] = 1
+
+
+
+# In[33]:
+
+
+dat_sel_no_fe
+
+
+# ## 구간에 따른 변화 Feature (  map / eng_tooth / eng_tq / mot_tq / eng_tps / eng_fuel)
+
+# In[5]:
+
+
+tooth_b_list = {
+    'index_b_t':index_b_t, 'index_b_2t':index_b_2t,'index_b_3t':index_b_3t,'index_b_4t':index_b_4t,'index_b_5t':index_b_5t
+} 
+
+col = int(len(tooth_b_list))
+row = int(len(X_))
+
+## tooth / map에 대한 arr 생성
+tooth_b_arr = np.zeros((row,col))
+map_b_arr=np.zeros((row,col))
+eng_tq_b_arr=np.zeros((row,col))
+mot_tq_b_arr=np.zeros((row,col))
+eng_tps_b_arr=np.zeros((row,col))
+eng_fuel_b_arr=np.zeros((row,col))
+mot_rsv_b_arr=np.zeros((row,col))
+
+
+# print(tooth_b_arr.shape)
+for col,val in enumerate(tooth_b_list):
+    for row,idx_val in enumerate(tooth_b_list[val]):
+#         print(val,row,idx_val)
+        eng_tooth_temp = df.iloc[idx_val]['eng_tooth']
+        eng_map_temp = df.iloc[idx_val]['eng_map']
+        eng_tq_temp = df.iloc[idx_val]['eng_tq_val']
+        mot_tq_temp = df.iloc[idx_val]['mot2_tq']
+        eng_tps_temp = df.iloc[idx_val]['eng_tps']
+        eng_fuel_temp = df.iloc[idx_val]['eng_fuel_consumption']
+        mot_rsv_temp = df.iloc[idx_val]['mot2_rsv']
+        
+#         print(eng_tooth_temp)
+        tooth_b_arr[row,col]=eng_tooth_temp
+        map_b_arr[row,col]=eng_map_temp
+        eng_tq_b_arr[row,col]=eng_tq_temp
+        mot_tq_b_arr[row,col]=mot_tq_temp
+        eng_tps_b_arr[row,col]=eng_tps_temp
+        eng_fuel_b_arr[row,col]=eng_fuel_temp
+        mot_rsv_b_arr[row,col]=mot_rsv_temp
+        
+
+#################### 각 배열 분리 ###
+tooth_b_t = tooth_b_arr[:,0]
+tooth_b_2t = tooth_b_arr[:,1]
+tooth_b_3t = tooth_b_arr[:,2]
+tooth_b_4t = tooth_b_arr[:,3]
+tooth_b_5t = tooth_b_arr[:,4]
+    
+print(f"tooth_b_index : {tooth_b_arr}")
+
+#################### 각 배열 분리 ###
+map_b_t = map_b_arr[:,0]
+map_b_2t = map_b_arr[:,1]
+map_b_3t = map_b_arr[:,2]
+map_b_4t = map_b_arr[:,3]
+map_b_5t = map_b_arr[:,4]
+    
+print(f"map_b_arr : {map_b_arr}")
+
+
+#################### 각 배열 분리 ###
+eng_tq_b_t = eng_tq_b_arr[:,0]
+eng_tq_b_2t = eng_tq_b_arr[:,1]
+eng_tq_b_3t = eng_tq_b_arr[:,2]
+eng_tq_b_4t = eng_tq_b_arr[:,3]
+eng_tq_b_5t = eng_tq_b_arr[:,4]
+    
+print(f"eng_tq_b_arr : {eng_tq_b_arr}")
+
+#################### 각 배열 분리 ###
+mot_tq_b_t = mot_tq_b_arr[:,0]
+mot_tq_b_2t = mot_tq_b_arr[:,1]
+mot_tq_b_3t = mot_tq_b_arr[:,2]
+mot_tq_b_4t = mot_tq_b_arr[:,3]
+mot_tq_b_5t = mot_tq_b_arr[:,4]
+    
+print(f"mot_tq_temp : {mot_tq_temp}")
+
+#################### 각 배열 분리 ###
+eng_tps_tq_b_t = eng_tps_b_arr[:,0]
+eng_tps_tq_b_2t = eng_tps_b_arr[:,1]
+eng_tps_tq_b_3t = eng_tps_b_arr[:,2]
+eng_tps_tq_b_4t = eng_tps_b_arr[:,3]
+eng_tps_tq_b_5t = eng_tps_b_arr[:,4]
+    
+print(f"eng_tps_b_arr : {eng_tps_b_arr}")
+
+#################### 각 배열 분리 ###
+eng_fuel_tq_b_t = eng_fuel_b_arr[:,0]
+eng_fuel_tq_b_2t = eng_fuel_b_arr[:,1]
+eng_fuel_tq_b_3t = eng_fuel_b_arr[:,2]
+eng_fuel_tq_b_4t = eng_fuel_b_arr[:,3]
+eng_fuel_tq_b_5t = eng_fuel_b_arr[:,4]
+    
+print(f"eng_fuel_b_arr : {eng_fuel_b_arr}")
+
+#################### 각 배열 분리 ###
+mot_rsv_tq_b_t = mot_rsv_b_arr[:,0]
+mot_rsv_tq_b_2t = mot_rsv_b_arr[:,1]
+mot_rsv_tq_b_3t = mot_rsv_b_arr[:,2]
+mot_rsv_tq_b_4t = mot_rsv_b_arr[:,3]
+mot_rsv_tq_b_5t = mot_rsv_b_arr[:,4]
+    
+print(f"mot_rsv_b_arr : {mot_rsv_b_arr}")
+
+
+# ## Heatmap 상관성
+
+# In[34]:
+
+
+data_sel
+
+
+# In[6]:
+
+
+all_data=None
+for idx , points in enumerate(zip (index_a, index_b , index_c)):
+    a_point= points[0]
+    b_point= points[1]
+    c_point = points[2]
+
+    temp_ = df.iloc[a_point:c_point,:]
+    all_data = pd.concat([all_data,temp_],axis=0)
+
+all_data.shape
+
+
+# In[9]:
+
+
+all_data
+
+
+# In[27]:
+
+
+data_sel
+
+
+# In[42]:
+
+
+# 수치형 데이터의 상관 관계 파악하기
+#heat map 사용을 위해 mask 생성
+# df_heatmap=all_data.drop(columns=['aps','Flag_AtoC','Flag_AtoB','hsg_tq_cmd','a_rising','b_falling','c_falling','eng_tooth'])
+# df_heatmap=pd.concat([df_heatmap,all_data['eng_tooth']], axis=1
+                 
+# df_heatmap =data_sel.drop(columns=['eng_tooth_freq'],axis=1)
+
+# df_heatmap=pd.concat([df_heatmap,pd.DataFrame(y_, columns=['eng_tooth'])], axis=1 )  
+           
+    
+df_heatmap=   data_sel
+df_heatmap=pd.concat([df_heatmap,pd.DataFrame(y_, columns=['eng_tooth'])], axis=1 )  
+
+corr_mat=round(df_heatmap.corr(),2)
+mask=np.zeros_like(corr_mat)
+# 대각행렬성분을 삭제함
+mask[np.triu_indices_from(mask)]=1
+
+# 빈 heatmap 행 / 열 삭제
+corr_mat=corr_mat.iloc[1:,:-1]
+mask=mask[1:,:-1]
+
+# heatmap 그리기
+figure,ax=plt.subplots()
+figure.set_size_inches(10,10)
+sns.heatmap(
+    corr_mat,
+    # 상관계수 표시
+    annot=True,
+    # 컬러맵
+    cmap='RdBu',
+    mask=mask,
+    linewidths=0.5,
+    # 최대값 대체
+    vmax=1,
+    # 최소값 대체
+    vmin=-1,
+    # 범례크기 줄이기
+    cbar_kws={"shrink" :0.5}
+)
+# ax.set(title='상관 관계 확인')
+
+
+# In[16]:
+
+
+df_heatmap.iloc[3]['eng_tooth']=255
+df_heatmap.iloc[3]['mot2_tq']=-23.982422
+df_heatmap.iloc[4]['mot2_tq']=28.515625
+
+df_heatmap.iloc[3]['eng_map_a']=0.000000
+df_heatmap.iloc[4]['eng_map_a']=1038.437500
+df_heatmap.iloc[3]['eng_map_b']=0.000000
+df_heatmap.iloc[4]['eng_map_b']=1014.437500
+
+df_heatmap.describe().T
+
+
+# In[11]:
+
+
+df_heatmap.describe().T
+
+
+# ## 구간별 eng_tooth 시각화
+
+# In[6]:
+
+
+## a 지점에서의 eng_tooth을 계산함
+tooth_a=[]
+for i in range(len(X_)):
+    df = X_[i]
+    eng_tooth_a = df.iloc[0]['eng_tooth']
+#     print(eng_tooth_b)
+    tooth_a.append(eng_tooth_a)
+tooth_a = np.array(tooth_a)
+tooth_a
+
+
+## b 지점에서의 eng_tooth을 계산함
+tooth_b=[]
+for i in range(len(X_)):
+    df = X_[i]
+    eng_tooth_b = df.iloc[-1]['eng_tooth']
+#     print(eng_tooth_b)
+    tooth_b.append(eng_tooth_b)
+tooth_b = np.array(tooth_b)
+tooth_b
+
+
+## b와 c 지점의 delta를 표현함.
+delta_1 = abs (eng_tooth_b - y_)
+delta_2 = 118 - delta_1
+
+delta_arr=[]
+for i in range(len(delta_1)):
+    delta_1_val = delta_1[i]
+    delta_2_val = delta_2[i]
+    delta = min(delta_1_val, delta_2_val)
+    delta_arr.append(delta)
+delta_arr = np.array(delta_arr)
+
+delta_pd = pd.DataFrame(delta_arr , columns=['delta_tooth'])
+
+
+mpl.rc('font',size=13)
+fig , axes = plt.subplots(nrows= 1, ncols = 5)
+# plt.tight_layout()
+fig.set_size_inches(15,3)
+plt.subplots_adjust(wspace=0.3)
+
+
+axes[0]=sns.scatterplot(x=tooth_a , y=y_ , ax=axes[0], marker='*',color='lightseagreen')
+axes[0].set(
+    title = "A point",
+    xlabel = "Tooth_A",
+    ylabel = 'Tooth_C'
+)
+
+
+
+axes[1]=sns.scatterplot(x=tooth_b_5t , y=y_ , ax=axes[1], marker='*', color='orange')
+axes[1].set(
+    title = "B-5t point",
+    xlabel = "Tooth_B_5t",
+#     ylabel = 'Tooth_C'
+)
+
+
+axes[2]=sns.scatterplot(x=tooth_b_3t , y=y_ , ax=axes[2], marker='*', color='lightsalmon')
+axes[2].set(
+    title = "B-3t point",
+    xlabel = "Tooth_B_3t",
+#     ylabel = 'Tooth_C'
+)
+
+axes[3]=sns.scatterplot(x=tooth_b_t , y=y_ , ax=axes[3], marker='*', color='olive')
+axes[3].set(
+    title = "B-t point",
+    xlabel = "Tooth_B_t",
+#     ylabel = 'Tooth_C'
+)
+
+
+axes[4]=sns.scatterplot(x=tooth_b , y=y_ , ax=axes[4], marker='*', color='maroon')
+axes[4].set(
+    title = "B point",
+    xlabel = "Tooth_B",
+#     ylabel = 'Tooth_C'
+)
+
+
+# ## 구간별 eng_map 시각화
+
+# In[52]:
+
+
+## a 지점에서의 eng_map 계산함
+map_a=[]
+for i in range(len(X_)):
+    df = X_[i]
+    eng_map_a = df.iloc[0]['eng_map']
+#     print(eng_tooth_b)
+    map_a.append(eng_map_a)
+map_a = np.array(map_a)
+map_a
+
+
+## b 지점에서의 eng_map 계산함
+map_b=[]
+for i in range(len(X_)):
+    df = X_[i]
+    eng_map_b = df.iloc[-1]['eng_map']
+#     print(eng_tooth_b)
+    map_b.append(eng_map_b)
+map_b = np.array(map_b)
+map_b
+
+
+
+
+
+mpl.rc('font',size=13)
+fig , axes = plt.subplots(nrows= 1, ncols = 5)
+# plt.tight_layout()
+fig.set_size_inches(15,3)
+plt.subplots_adjust(wspace=0.3)
+
+
+axes[0]=sns.scatterplot(x=map_a , y=y_ , ax=axes[0], marker='*',color='lightseagreen')
+axes[0].set(
+    title = "A point",
+    xlabel = "Eng_map_A",
+    ylabel = 'Tooth_C'
+)
+
+
+
+axes[1]=sns.scatterplot(x=map_b_5t , y=y_ , ax=axes[1], marker='*', color='orange')
+axes[1].set(
+    title = "B-5t point",
+    xlabel = "Eng_map_B_5t",
+#     ylabel = 'Tooth_C'
+)
+
+
+axes[2]=sns.scatterplot(x=map_b_3t , y=y_ , ax=axes[2], marker='*', color='lightsalmon')
+axes[2].set(
+    title = "B-3t point",
+    xlabel = "Eng_map_B_3t",
+#     ylabel = 'Tooth_C'
+)
+
+axes[3]=sns.scatterplot(x=map_b_t , y=y_ , ax=axes[3], marker='*', color='olive')
+axes[3].set(
+    title = "B-t point",
+    xlabel = "Eng_map_B_t",
+#     ylabel = 'Tooth_C'
+)
+
+
+axes[4]=sns.scatterplot(x=map_b , y=y_ , ax=axes[4], marker='*', color='maroon')
+axes[4].set(
+    title = "B point",
+    xlabel = "Eng_map_B",
+#     ylabel = 'Tooth_C'
+)
+
+
+# ## 구간별 eng_tq 시각화
+
+# In[22]:
+
+
+## a 지점에서의 eng_map 계산함
+eng_tq_a=[]
+for i in range(len(X_)):
+    df = X_[i]
+    eng_tq_= df.iloc[0]['eng_tq_val']
+#     print(eng_tooth_b)
+    eng_tq_a.append(eng_tq_)
+eng_tq_a = np.array(eng_tq_a)
+eng_tq_a
+
+
+## b 지점에서의 eng_map 계산함
+eng_tq_b=[]
+for i in range(len(X_)):
+    df = X_[i]
+    eng_tq_ = df.iloc[-1]['eng_tq_val']
+#     print(eng_tooth_b)
+    eng_tq_b.append(eng_tq_)
+eng_tq_b = np.array(eng_tq_b)
+eng_tq_b
+
+
+
+
+
+mpl.rc('font',size=13)
+fig , axes = plt.subplots(nrows= 1, ncols = 5)
+# plt.tight_layout()
+fig.set_size_inches(15,3)
+plt.subplots_adjust(wspace=0.3)
+
+
+axes[0]=sns.scatterplot(x=eng_tq_a , y=y_ , ax=axes[0], marker='*',color='lightseagreen')
+axes[0].set(
+    title = "A point",
+    xlabel = "Eng_tq_a",
+    ylabel = 'Tooth_C'
+)
+
+
+
+axes[1]=sns.scatterplot(x=eng_tq_b_5t , y=y_ , ax=axes[1], marker='*', color='orange')
+axes[1].set(
+    title = "B-5t point",
+    xlabel = "Eng_tq_B_5t",
+#     ylabel = 'Tooth_C'
+)
+
+
+axes[2]=sns.scatterplot(x=eng_tq_b_3t , y=y_ , ax=axes[2], marker='*', color='lightsalmon')
+axes[2].set(
+    title = "B-3t point",
+    xlabel = "Eng_tq_B_3t",
+#     ylabel = 'Tooth_C'
+)
+
+axes[3]=sns.scatterplot(x=eng_tq_b_t , y=y_ , ax=axes[3], marker='*', color='olive')
+axes[3].set(
+    title = "B-t point",
+    xlabel = "Eng_tq_B_t",
+#     ylabel = 'Tooth_C'
+)
+
+
+axes[4]=sns.scatterplot(x=eng_tq_b , y=y_ , ax=axes[4], marker='*', color='maroon')
+axes[4].set(
+    title = "B point",
+    xlabel = "Eng_tq_B",
+#     ylabel = 'Tooth_C'
+)
+
+
+# In[28]:
+
+
+## 각 추출길이와 eng_tq와의 상관성 분석
+dist_leng=[]
+for i in range(len(X_)):
+    leng = X_[i].shape[0]
+    dist_leng.append(leng)
+dist_leng = np.array(dist_leng)
+dist_leng.shape
+
+
+# In[59]:
+
+
+mpl.rc('font',size=13)
+fig , axes = plt.subplots(nrows= 1, ncols = 2)
+# plt.tight_layout()
+fig.set_size_inches(8,3)
+plt.subplots_adjust(wspace=0.3)
+
+axes[0]=sns.scatterplot(x=eng_tq_a , y=dist_leng , ax=axes[0], marker='*',color='lightseagreen')
+axes[0].set(
+    title = "Toruqe",
+    xlabel = "Eng_tq_a",
+    ylabel = 'A-B (10ms)',
+    ylim=(60,150),
+    xlim=(20,105)
+)
+
+
+
+
+axes[1]=sns.scatterplot(x=map_a, y=dist_leng , ax=axes[1], marker='*', color='orange')
+axes[1].set(
+    title = "MAP",
+    xlabel = "map_a",
+#     ylabel = 'Tooth_C'
+    ylim=(60,150),
+#     xlim=(0,105)
+)
+
+
+# ## 구간별 mot_tq 시각화
+
+# In[9]:
+
+
+## a 지점에서 계산함
+mot_tq_a=[]
+for i in range(len(X_)):
+    df = X_[i]
+    mot_tq_= df.iloc[0]['mot2_tq']
+#     print(eng_tooth_b)
+    mot_tq_a.append(mot_tq_)
+mot_tq_a = np.array(mot_tq_a)
+mot_tq_a
+
+
+## b 지점에서 계산함
+mot_tq_b=[]
+for i in range(len(X_)):
+    df = X_[i]
+    mot_tq_ = df.iloc[-1]['mot2_tq']
+#     print(eng_tooth_b)
+    mot_tq_b.append(mot_tq_)
+mot_tq_b = np.array(mot_tq_b)
+mot_tq_b
+
+
+
+
+
+mpl.rc('font',size=13)
+fig , axes = plt.subplots(nrows= 1, ncols = 5)
+# plt.tight_layout()
+fig.set_size_inches(15,3)
+plt.subplots_adjust(wspace=0.3)
+
+
+axes[0]=sns.scatterplot(x=mot_tq_a , y=y_ , ax=axes[0], marker='*',color='lightseagreen')
+axes[0].set(
+    title = "A point",
+    xlabel = "Mot_tq_a",
+    ylabel = 'Tooth_C'
+)
+
+
+
+axes[1]=sns.scatterplot(x=mot_tq_b_5t , y=y_ , ax=axes[1], marker='*', color='orange')
+axes[1].set(
+    title = "B-5t point",
+    xlabel = "Mot_tq_B_5t",
+#     ylabel = 'Tooth_C'
+)
+
+
+axes[2]=sns.scatterplot(x=mot_tq_b_3t , y=y_ , ax=axes[2], marker='*', color='lightsalmon')
+axes[2].set(
+    title = "B-3t point",
+    xlabel = "Mot_tq_B_3t",
+#     ylabel = 'Tooth_C'
+)
+
+axes[3]=sns.scatterplot(x=mot_tq_b_t , y=y_ , ax=axes[3], marker='*', color='olive')
+axes[3].set(
+    title = "B-t point",
+    xlabel = "Mot_tq_B_t",
+#     ylabel = 'Tooth_C'
+)
+
+
+axes[4]=sns.scatterplot(x=mot_tq_b , y=y_ , ax=axes[4], marker='*', color='maroon')
+axes[4].set(
+    title = "B point",
+    xlabel = "Mot_tq_B",
+#     ylabel = 'Tooth_C'
+)
+
+
+# ## 구간별 시각화 mot2rsv
+
+# In[10]:
+
+
+## a 지점에서 계산함
+mot_rsv_a=[]
+for i in range(len(X_)):
+    df = X_[i]
+    mot_rsv_= df.iloc[0]['mot2_rsv']
+#     print(eng_tooth_b)
+    mot_rsv_a.append(mot_rsv_)
+mot_rsv_a = np.array(mot_rsv_a)
+mot_rsv_a
+
+
+## b 지점에서 계산함
+mot_rsv_b=[]
+for i in range(len(X_)):
+    df = X_[i]
+    mot_rsv_ = df.iloc[-1]['mot2_rsv']
+#     print(eng_tooth_b)
+    mot_rsv_b.append(mot_rsv_)
+mot_rsv_b = np.array(mot_rsv_b)
+mot_rsv_b
+
+
+
+
+
+mpl.rc('font',size=13)
+fig , axes = plt.subplots(nrows= 1, ncols = 5)
+# plt.tight_layout()
+fig.set_size_inches(15,3)
+plt.subplots_adjust(wspace=0.3)
+
+
+axes[0]=sns.scatterplot(x=mot_rsv_a , y=y_ , ax=axes[0], marker='*',color='lightseagreen')
+axes[0].set(
+    title = "A point",
+    xlabel = "Mot_rsv_a",
+    ylabel = 'Tooth_C'
+)
+
+
+
+axes[1]=sns.scatterplot(x=mot_rsv_tq_b_5t , y=y_ , ax=axes[1], marker='*', color='orange')
+axes[1].set(
+    title = "B-5t point",
+    xlabel = "Mot_rsv_B_5t",
+#     ylabel = 'Tooth_C'
+)
+
+
+axes[2]=sns.scatterplot(x=mot_rsv_tq_b_3t , y=y_ , ax=axes[2], marker='*', color='lightsalmon')
+axes[2].set(
+    title = "B-3t point",
+    xlabel = "Mot_rsv_B_3t",
+#     ylabel = 'Tooth_C'
+)
+
+axes[3]=sns.scatterplot(x=mot_rsv_tq_b_t , y=y_ , ax=axes[3], marker='*', color='olive')
+axes[3].set(
+    title = "B-t point",
+    xlabel = "Mot_rsv_B_t",
+#     ylabel = 'Tooth_C'
+)
+
+
+axes[4]=sns.scatterplot(x=mot_rsv_b , y=y_ , ax=axes[4], marker='*', color='maroon')
+axes[4].set(
+    title = "B point",
+    xlabel = "Mot_rsv_B",
+#     ylabel = 'Tooth_C'
+)
+
+
+# In[35]:
+
+
+data_sel.columns
+
+
+# In[36]:
+
+
+fig, ax = plt.subplots()
+fig.set_size_inches(20,11)
+data_sel.hist(bins=60,ax=ax)
+
+
+# In[74]:
+
+
+sel_cols=['eng_map_a','eng_rpm_grd','eng_map_b','eng_map_avg','eng_tooth_freq','mot_rpm_grd','mot_rsv_b','g_value_min','g_value_max','eng_tooth_b_5t' ]
+
+
+# In[11]:
+
+
+dat_sel_no_fe
+
+
+# In[34]:
+
+
+from sklearn.model_selection import train_test_split
+
+# X_=np.array(X_sequnce)
+y_=np.array(y_)
+
+X_train_, X_test_, y_train, y_test = train_test_split(dat_sel_no_fe, y_, test_size=0.1, random_state=123,shuffle=False)
+
+## 정지각의 최대값은 118 이므로 값을 고정함
+y_train=y_train.clip(1,118)
+y_test=y_test.clip(1,118)
+
+## dataFrame 변환
+y_train = pd.DataFrame(y_train)
+y_test = pd.DataFrame(y_test)
+
+print('X_train:', X_train_.shape, 'Y_train:', y_train.shape)
+print('X_test:', X_test_.shape, 'Y_test:', y_test.shape)
+
+
+# In[35]:
+
+
+# Applying Base Model
+fit_reg1_rd = sm.OLS(y_train, X_train_).fit()
+display(fit_reg1_rd.summary())
+
+
+# In[44]:
+
+
+import xgboost 
+
+xgb_model = xgboost.XGBRegressor(n_estimators=1000, learning_rate=0.01, gamma=0, subsample=0.75,
+                           colsample_bytree=1, max_depth=5)
+
+xgb_model.fit(X_train_,y_train)
+
+
+pred_xgb_train = xgb_model.predict(X_train_).clip(1,118)
+pred_xgb_test = xgb_model.predict(X_test_).clip(1,118)
+
+# # Evaluation
+eval_eng_loss(y_train, pred_xgb_train , y_test, pred_xgb_test)
+
+
+# In[19]:
+
+
+## feature importance
+
+feature_importance=xgboost.plot_importance(xgb_model)
+
+
+# ## Random Forest Regression
+
+# In[20]:
+
+
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import accuracy_score
+
+
+# In[21]:
+
+
+from sklearn.model_selection import GridSearchCV
+
+params = { 'n_estimators' : [10, 100],
+           'max_depth' : [6, 8, 10, 12],
+           'min_samples_leaf' : [8, 12, 18],
+           'min_samples_split' : [8, 16, 20]
+            }
+
+# RandomForestClassifier 객체 생성 후 GridSearchCV 수행
+rf_clf = RandomForestRegressor(random_state = 0)
+grid_cv = GridSearchCV(rf_clf, param_grid = params, cv = 5)
+grid_cv.fit(X_train_, np.array(y_train).reshape(-1,1))
+
+print('최적 하이퍼 파라미터: ', grid_cv.best_params_)
+print('최고 예측 정확도: {:.4f}'.format(grid_cv.best_score_))
+
+
+# In[40]:
+
+
+# sel_cols=['eng_tps','mot2_tq','eng_map_b','eng_tooth_b','eng_tooth_b_t','eng_tooth_b_3t','eng_tooth_b_5t']
+sel_cols=['eng_tps','mot2_tq','eng_map_b','eng_tooth_b_5t']
+
+from sklearn.model_selection import train_test_split
+
+# X_=np.array(X_sequnce)
+y_=np.array(y_)
+
+X_train_, X_test_, y_train, y_test = train_test_split(dat_sel_no_fe, y_, test_size=0.1, random_state=123,shuffle=False)
+
+## 정지각의 최대값은 118 이므로 값을 고정함
+y_train=y_train.clip(1,118)
+y_test=y_test.clip(1,118)
+
+## dataFrame 변환
+y_train = pd.DataFrame(y_train)
+y_test = pd.DataFrame(y_test)
+
+print('X_train:', X_train_.shape, 'Y_train:', y_train.shape)
+print('X_test:', X_test_.shape, 'Y_test:', y_test.shape)
+
+
+# In[41]:
+
+
+params = { 'n_estimators' : 10,
+           'max_depth' : 3,
+           'min_samples_leaf' : 8,
+           'min_samples_split' : 20
+          }
+
+# RandomForestClassifier 객체 생성 후 GridSearchCV 수행
+rf_clf_best = RandomForestRegressor(n_estimators = 10,
+           max_depth= 12,
+           min_samples_leaf = 8,
+           min_samples_split = 20, random_state = 0)
+
+rf_clf_best.fit(X_train_, np.array(y_train).reshape(-1,1))
+
+pred_xgb_train = rf_clf_best.predict(X_train_).clip(1,118)
+pred_xgb_test = rf_clf_best.predict(X_test_).clip(1,118)
+
+# # Evaluation
+eval_eng_loss(y_train, pred_xgb_train , y_test, pred_xgb_test)
+
+
+# In[50]:
+
+
+## feature importance
+
+Variable_Importances = pd.DataFrame([rf_clf_best.feature_importances_], 
+                                    columns=X_train_.columns, 
+                                    index=['importance']).T.sort_values(by=['importance'], ascending=False)
+Variable_Importances.plot.bar(figsize=(12,6), fontsize=15)
+plt.title('Variable Importances', fontsize=15)
+plt.grid()
+plt.show()
+
+
+# ## None F.E 계산
+
+# # 1) A지점   2) B지점  3) 구간 MAX  4)구간 MIN , 5) 구간 MEAN
+
+# In[45]:
+
+
+#23.48 # 2.5 # 18.42 # 18.78 # 16.96
+
+
+# In[47]:
+
+
+mean = (23.48 + 2.5 + 18.42 + 18.78 + 16.96) /5
+mean
+
