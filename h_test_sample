@@ -1,0 +1,356 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# ## 베이스라인 코드
+# ---
+# 제공되는 Baseline Code는 본 인증 평가의 데이터 분석 방법 이해를 돕기 위한 참고용이며,
+# 
+# 자율적으로 분석 Tool을 선택 및 활용하여 평가에 참여하실 수 있습니다.
+
+# ## 1.데이터 불러오기
+
+# In[108]:
+
+
+# !pip install scikit-learn --user --upgrade
+
+
+# In[1]:
+
+
+import pandas as pd
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+# In[2]:
+
+
+import pandas as pd
+
+train = pd.read_csv('train.csv')
+test = pd.read_csv('test.csv')
+
+
+# In[3]:
+
+
+print(train.shape)
+print(test.shape)
+
+
+# ## 2. 데이터 전처리
+# 
+# 데이터를 분석이 용이하도록 가공합니다.
+
+# In[4]:
+
+
+# 학습 데이터를 정제하고 정답 값을 분리해줍니다.
+X= train.drop(columns=['GPSMode'],axis=1)
+y = train['GPSMode']
+
+print(X.shape)
+print(y.shape)
+
+
+# In[5]:
+
+
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
+
+
+## 전처리
+X_cat=[ 'B_FLAG', 'E_Status','G_Status','HL_High','HL_Low','Inhibit_P','Inhibit_R','Inhibit_N','Inhibit_D','DriveMode','HevMode']
+X_num =['S_Angle', 'B_PRES', 'LAT_ACCEL', 'LONG_ACCEL', 'YAW_RATE',
+       'B_Depth', 'A_Depth', 'E_Speed', 'V_Speed', 'WHL_SPD_FL', 'WHL_SPD_FR',
+       'WHL_SPD_RL', 'WHL_SPD_RR', 'BA_SoC', 'F_Economy', 'E_Col_Temp',
+       'Var_1', 'CT', 'MS', 'MC', 'X', 'Y', 'Z', 'BVP', 'EDA', 'HR', 'TEMP',
+       'Var_2', 'Var_3', 'Var_4']
+
+
+# ### 수치형 변수 scaler
+
+# In[6]:
+
+
+## 수치형 변수 MinMaxScaler 적용
+
+X_num_fil_sel = X[X_num]
+scaler = MinMaxScaler()
+
+X_num_fil = scaler.fit_transform(X_num_fil_sel)
+X_num_fil_df = pd.DataFrame(X_num_fil , columns=X_num_fil_sel.columns)
+X_num_fil_df.describe()
+
+
+# In[7]:
+
+
+### 최종 모델에도 적용함. 위에서 적용한 scaler 사용해야함.
+
+test_num_fil_sel=test[X_num]
+test_num_fil = scaler.transform(test_num_fil_sel)
+test_num_fil_df = pd.DataFrame(test_num_fil , columns=test_num_fil_sel.columns)
+test_num_fil_df.describe().T
+
+
+# ## 범주형 변수 scaler
+
+# In[17]:
+
+
+X_cat_fil_sel = X[X_cat]
+print(X_cat_fil_sel.shape)
+## one-hot-encoding
+ohe = OneHotEncoder(sparse=False , handle_unknown='ignore')
+
+X_cat_fil = ohe.fit_transform(X_cat_fil_sel.values.reshape(-1,len(X_cat_fil_sel.columns)))
+X_cat_fil_df = pd.DataFrame(X_cat_fil , columns=ohe.get_feature_names())
+X_cat_fil_df
+
+
+# In[21]:
+
+
+## test data에도 적용함.
+test_cat_fil_sel = test[X_cat]
+
+#train에서 적용한 scaler 적용함.
+test_cat_fil = ohe.transform(test_cat_fil_sel.values.reshape(-1 , len(test_cat_fil_sel.columns)))
+test_cat_fil_df = pd.DataFrame(test_cat_fil , columns = ohe.get_feature_names())
+test_cat_fil_df
+
+
+# ## 각각 scaling 한 변수들 다시 합치기
+
+# In[22]:
+
+
+X_merge = pd.concat([X_num_fil_df , X_cat_fil_df] , axis=1)
+test_merge = pd.concat([test_num_fil_df , test_cat_fil_df] , axis=1)
+
+print(X_merge.shape)
+print(test_merge.shape)
+
+
+# ## 3. 분석 모델 설계
+# 
+# 분석을 위한 모델을 준비합니다.
+# 
+# 여기서는 가장 간단한 로지스틱 모델을 사용하여 분류 모델을 생성합니다.
+
+# In[23]:
+
+
+from sklearn.model_selection import train_test_split
+
+X_train , X_test , y_train ,y_test = train_test_split(X_merge,y,test_size=0.2,random_state=100)
+
+print(X_train.shape)
+print(X_test.shape)
+print(y_train.shape)
+print(y_test.shape)
+
+
+# ## 4. 모델 학습
+# 
+# 분석 모델을 학습시킵니다.
+
+# ### LogisticRegression
+
+# In[25]:
+
+
+from sklearn.linear_model import LogisticRegression
+
+model = LogisticRegression()
+
+model.fit(X_train, y_train)
+
+prediction = model.predict(X_test)
+prediction
+
+
+# ## 5. 예측값 생성
+# 학습한 모델을 사용하여 예측값을 생성합니다.
+
+# In[27]:
+
+
+from sklearn.metrics import classification_report
+
+print(classification_report(y_test,prediction))
+
+
+# In[28]:
+
+
+model.classes_
+
+
+# In[29]:
+
+
+model.coef_.shape
+
+
+# In[30]:
+
+
+result_df_1 = pd.DataFrame(model.coef_[0].reshape(-1,1) , index=X_train.columns, columns=['GPS_MODE_1'])
+result_df_1_top10 =result_df_1.sort_values(by='GPS_MODE_1',ascending=False)[:10]
+
+result_df_2=pd.DataFrame(model.coef_[1].reshape(-1,1), index=X_train.columns, columns=['GPS_MODE_2'])
+result_df_2_top10 = result_df_2.sort_values(by='GPS_MODE_2', ascending=False)[:10]
+
+result_df_3=pd.DataFrame(model.coef_[2].reshape(-1,1), index=X_train.columns, columns=['GPS_MODE_3'])
+result_df_3_top10 = result_df_3.sort_values(by='GPS_MODE_3', ascending=False)[:10]
+
+result_df_4=pd.DataFrame(model.coef_[3].reshape(-1,1), index=X_train.columns, columns=['GPS_MODE_4'])
+result_df_4_top10 = result_df_4.sort_values(by='GPS_MODE_4', ascending=False)[:10]
+
+result_df_5=pd.DataFrame(model.coef_[4].reshape(-1,1), index=X_train.columns, columns=['GPS_MODE_5'])
+result_df_5_top10 = result_df_5.sort_values(by='GPS_MODE_5', ascending=False)[:10]
+
+result_df_6=pd.DataFrame(model.coef_[5].reshape(-1,1), index=X_train.columns, columns=['GPS_MODE_6'])
+result_df_6_top10 = result_df_6.sort_values(by='GPS_MODE_6', ascending=False)[:10]
+
+## graph 확인
+
+mpl.rc('font',size=13)
+mpl.rc('xtick',labelsize=10)
+mpl.rc('ytick',labelsize=10)
+
+fig , axes = plt.subplots(nrows=3, ncols=2)
+# plt.tight_layout()
+fig.set_size_inches(11,15)
+plt.subplots_adjust(wspace=0.3, hspace=0.5)
+
+## graph
+# GPS_MODE_1
+axes[0,0] = sns.barplot(x=result_df_1_top10.index , y='GPS_MODE_1',data=result_df_1_top10, ax=axes[0,0])
+axes[0,0].set(title='GPS_MODE_1' , xlabel='Feature' , ylabel='Coef')
+axes[0,0].tick_params(axis='x',labelrotation=45)
+
+# GPS_MODE_2
+axes[0,1]=sns.barplot(x=result_df_2_top10.index , y='GPS_MODE_2' , data=result_df_2_top10 , ax=axes[0,1])
+axes[0,1].set(title='GPS_MODE_2', xlabel='Feature' , ylabel='Coef')
+axes[0,1].tick_params(axis='x',labelrotation=45)
+
+# GPS_MODE_3
+axes[1,0]=sns.barplot(x=result_df_3_top10.index , y='GPS_MODE_3' , data=result_df_3_top10 , ax=axes[1,0])
+axes[1,0].set(title='GPS_MODE_3', xlabel='Feature' , ylabel='Coef')
+axes[1,0].tick_params(axis='x',labelrotation=45)
+
+# GPS_MODE_4
+axes[1,1]=sns.barplot(x=result_df_4_top10.index , y='GPS_MODE_4' , data=result_df_4_top10 , ax=axes[1,1])
+axes[1,1].set(title='GPS_MODE_4', xlabel='Feature' , ylabel='Coef')
+axes[1,1].tick_params(axis='x',labelrotation=45)
+
+# GPS_MODE_5
+axes[2,0]=sns.barplot(x=result_df_5_top10.index , y='GPS_MODE_5' , data=result_df_5_top10 , ax=axes[2,0])
+axes[2,0].set(title='GPS_MODE_5', xlabel='Feature' , ylabel='Coef')
+axes[2,0].tick_params(axis='x',labelrotation=45)
+
+# GPS_MODE_6
+axes[2,1]=sns.barplot(x=result_df_6_top10.index , y='GPS_MODE_6' , data=result_df_6_top10 , ax=axes[2,1])
+axes[2,1].set(title='GPS_MODE_6', xlabel='Feature' , ylabel='Coef')
+axes[2,1].tick_params(axis='x',labelrotation=45)
+
+
+# In[31]:
+
+
+result_merge = pd.concat([result_df_1 , result_df_2 , result_df_3 , result_df_4, result_df_5, result_df_6], axis=1)
+result_merge['mean']=result_merge.mean(axis=1)
+result_merge = result_merge.sort_values(by='mean' , ascending=False)
+result_merge_top10 = result_merge[:10]
+ax=sns.barplot(x=result_merge_top10.index , y='mean' , data=result_merge_top10)
+ax.tick_params(axis='x' , labelrotation=45)
+
+
+# ### RandomForest - GridSearch
+
+# In[ ]:
+
+
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
+
+
+params = { 'n_estimators' : [10, 100],
+           'max_depth' : [6, 8, 10, 12],
+           'min_samples_leaf' : [8, 12, 18],
+           'min_samples_split' : [8, 16, 20]
+            }
+
+# RandomForestClassifier 객체 생성 후 GridSearchCV 수행
+rf_clf = RandomForestClassifier(random_state = 0)
+grid_cv = GridSearchCV(rf_clf, param_grid = params, cv = 5)
+grid_cv.fit(X_train, y_train )
+
+print('최적 하이퍼 파라미터: ', grid_cv.best_params_)
+print('최고 예측 정확도: {:.4f}'.format(grid_cv.best_score_))
+
+
+# In[ ]:
+
+
+rf_clf_best = RandomForestClassifier(
+           n_estimators = 10,
+           max_depth= 12,
+           min_samples_leaf = 8,
+           min_samples_split = 20, random_state = 0
+)
+
+rf_clf_best.fit(X_train,y_train)
+
+prediction = rf_clf_best.predict(X_test)
+
+from sklearn.metrics import classification_report
+
+print(classification_report(y_test , prediction))
+
+
+# ### Test 제출파일
+
+# In[ ]:
+
+
+prediction_submission  = rf_clf_best.predict(test_merge)
+prediction_submission.shape
+
+
+# ### XGBOOST - GridSearch
+
+# In[ ]:
+
+
+from xgboost import XGBClassifier
+
+
+xgb_model = xgboost.XGBRegressor(n_estimators=1000, learning_rate=0.01, gamma=0, subsample=0.75,
+                           colsample_bytree=1, max_depth=5)
+
+
+# ## 6. 제출 파일 생성
+# 
+# submission 파일을 만들어서 제출합니다.
+
+# In[12]:
+
+
+submission = pd.read_csv('sample_submission.csv')
+
+submission['GPSMode'] = prediction_submission
+
+
+# In[13]:
+
+
+# submission을 csv 파일로 다운 받습니다.
+submission.to_csv('베이스라인.csv', index=False)
+
